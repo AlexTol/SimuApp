@@ -1,0 +1,16 @@
+{
+  "name": "simucommon",
+  "version": "1.0.0",
+  "description": "",
+  "main": "js/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "express": "^4.17.1",
+    "mariadb": "^2.5.4",
+    "typescript": "^4.4.2"
+  }
+}

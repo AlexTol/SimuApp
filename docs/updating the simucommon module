@@ -1,0 +1,10 @@
+in simucommon/ 
+   $tsc
+
+in simuBack/ (root dir)
+    npm install ./simucommon --save-dev
+
+
+For new backend nodes:
+    you might have to copy the dev-dependencies from the top package.json
+    also you might have to copy the packages and dependencies form the top package-lock.json

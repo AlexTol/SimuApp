@@ -1,0 +1,8 @@
+{
+  "devDependencies": {
+    "express": "^4.17.1",
+    "mariadb": "^2.5.4",
+    "simucommon": "file:simucommon",
+    "typescript": "^4.4.2"
+  }
+}
