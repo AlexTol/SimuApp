@@ -1,4 +1,5 @@
 import * as express from 'express'
+import * as fs from 'fs'
 import {db} from 'simucommon'
 
 class App {
@@ -11,21 +12,25 @@ class App {
 
   private mountRoutes (): void {
     const router = express.Router()
-    let mdb = new db()
+   
 
-    router.post('/signup', (req, res) => {
+    var data = fs.readFileSync('/opt/Simu/db.txt');
+    var creds = data.toString().replace(/\r\n/g,'\n').split('\n');
+    var host = creds[0].split(':')[1];
+    var user = creds[1].split(':')[1];
+    var pass = creds[2].split(':')[1];
+    
+    let mdb = new db(host,user,pass);
+
+    router.post('/signup', async (req, res) => {
       var uArr = new Array()
-      uArr.push(req.get('id'))
-      uArr.push(req.get('username'))
-      uArr.push(req.get('pass'))
-      uArr.push(mdb.test())
+      uArr['username'] = req.get('username')
+      uArr['pass'] = req.get('pass')
+
+      const result = await mdb.registerUser(uArr);
 
       res.json({
-        message: 'Sign up success',
-        fisrt: uArr[0],
-        last: uArr[1],
-        user: uArr[2],
-        lib : uArr[3],
+        message: result,
       })
     })
 
