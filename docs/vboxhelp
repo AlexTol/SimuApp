@@ -1,0 +1,9 @@
+sudo pacman -Syu linux510-virtualbox-host-modules
+
+sudo vboxreload
+
+//create snapshots
+vboxmanage snapshot serverImage take serverImageSnap
+
+//delete snapshots
+vboxmanage snapshot serverImage delete serverImageSnap

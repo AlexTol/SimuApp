@@ -1,2 +1,14 @@
+Force Update pacman (for linux stuff)
+Sudo pacman -Sy -dd pacman
+
 start app
 node js/start.js
+
+kill app on port
+kill -9 $(lsof -t -i:7000)
+or
+fuser -k 7000/tcp
+
+
+//ssh with no key checking
+ssh -o StrictHostKeyChecking=no 0.0.0.0 -p 9001
