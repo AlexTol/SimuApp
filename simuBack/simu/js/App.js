@@ -38,6 +38,7 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 exports.__esModule = true;
 var express = require("express");
 var simu_1 = require("./simu");
+var fs = require("fs");
 var App = /** @class */ (function () {
     function App() {
         this.express = express();
@@ -46,18 +47,48 @@ var App = /** @class */ (function () {
     App.prototype.mountRoutes = function () {
         var _this = this;
         var router = express.Router();
+        var type;
+        var MEM;
+        var CPU;
+        var Dat;
+        var data = fs.readFileSync('formats/format.txt', 'utf8');
+        Dat = data.split("\n");
+        type = Dat[0].split(":")[1];
+        MEM = Dat[1].split(":")[1];
+        CPU = Dat[2].split(":")[1];
         router.post('/simu', function (req, res) { return __awaiter(_this, void 0, void 0, function () {
-            var type;
+            var jobMem, jobCPU;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
-                        type = req.get('type');
+                        jobMem = parseInt(req.get('jobmem'));
+                        jobCPU = parseInt(req.get('jobcpu'));
+                        if (jobMem > MEM) {
+                            res.json({
+                                message: 'FAIL',
+                                reason: 'MEM'
+                            });
+                            return [2 /*return*/];
+                        }
+                        else if (jobCPU > CPU) {
+                            res.json({
+                                message: 'FAIL',
+                                reason: 'CPU'
+                            });
+                            return [2 /*return*/];
+                        }
+                        MEM = MEM - jobMem;
+                        CPU = CPU - jobCPU;
                         return [4 /*yield*/, simu_1.simulate(type)];
                     case 1:
                         _a.sent();
+                        MEM = MEM + jobMem;
+                        CPU = CPU + jobCPU;
                         res.json({
                             message: 'done!',
-                            type: type
+                            type: type,
+                            mem: MEM,
+                            cpu: CPU
                         });
                         return [2 /*return*/];
                 }

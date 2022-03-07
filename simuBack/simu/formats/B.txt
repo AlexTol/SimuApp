@@ -1,0 +1,3 @@
+type:B
+MEM:2
+CPU:2

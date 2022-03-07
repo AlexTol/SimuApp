@@ -1,0 +1,3 @@
+type:C
+MEM:4
+CPU:4
