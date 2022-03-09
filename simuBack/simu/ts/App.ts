@@ -1,6 +1,7 @@
 import * as express from 'express'
 import {simulate} from './simu'
 import * as fs from 'fs'
+import path = require('path')
 
 class App {
   public express
@@ -17,7 +18,7 @@ class App {
     var CPU
     var Dat
 
-    var data = fs.readFileSync('formats/format.txt','utf8')
+    var data = fs.readFileSync(path.resolve(__dirname, '../formats/format.txt'),'utf8')
     Dat = data.split("\n")
 
     type = Dat[0].split(":")[1];

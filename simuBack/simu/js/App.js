@@ -39,6 +39,7 @@ exports.__esModule = true;
 var express = require("express");
 var simu_1 = require("./simu");
 var fs = require("fs");
+var path = require("path");
 var App = /** @class */ (function () {
     function App() {
         this.express = express();
@@ -51,7 +52,7 @@ var App = /** @class */ (function () {
         var MEM;
         var CPU;
         var Dat;
-        var data = fs.readFileSync('formats/format.txt', 'utf8');
+        var data = fs.readFileSync(path.resolve(__dirname, '../formats/format.txt'), 'utf8');
         Dat = data.split("\n");
         type = Dat[0].split(":")[1];
         MEM = Dat[1].split(":")[1];

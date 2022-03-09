@@ -1,0 +1,22 @@
+FROM ubuntu:18.04
+WORKDIR /simuBack
+
+COPY auth auth
+COPY node_modules node_modules
+COPY simu simu
+COPY simucommon simucommon
+COPY package.json .
+COPY package-lock.json .
+
+Run apt-get update
+Run apt-get install -y nodejs
+Run apt-get install -y  npm
+RUN npm install
+RUN rm simu/formats/format.txt
+RUN cp simu/formats/C.txt simu/formats/format.txt
+
+WORKDIR /simuBack/simu
+
+RUN ls -al /simuBack/simu/formats
+CMD ["node","js/start.js"]
+EXPOSE 8000
