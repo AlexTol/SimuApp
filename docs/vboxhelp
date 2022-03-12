@@ -4,6 +4,11 @@ sudo vboxreload
 
 //create snapshots
 vboxmanage snapshot serverImage take serverImageSnap
+and
+sudo vboxmanage snapshot serverImage take serverImageSnap
+
 
 //delete snapshots
 vboxmanage snapshot serverImage delete serverImageSnap
+and
+sudo vboxmanage snapshot serverImage delete serverImageSnap

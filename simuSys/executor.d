@@ -21,6 +21,56 @@ string[string] processInput(string input)
     return cmdVals;
 }
 
+void spinUpContainer(string servName,int servPort,string conName,int containerPort,string conType)
+{
+    bool noError = true;
+    string cmd1 = format("vboxmanage controlvm \"%s\" natpf1 \"%s,tcp,,%s,,%s\"",servName,conName,containerPort,containerPort);
+    auto res1 = executeShell(cmd1);
+    if(res1.status != 0)
+    {
+        noError = false;
+        writefln("VM modification failed\n %s\n",cmd1);
+    }
+
+    string cmd2 = format("ssh -o StrictHostKeyChecking=no 0.0.0.0 -p %s 'docker run --name %s -d -p %s:8000 app%s'",servPort,conName,containerPort,toLower(conType));
+    auto res2 = executeShell(cmd2);
+    if(res2.status != 0)
+    {
+        noError = false;
+        writefln("Container Creation failed\n %s\n",cmd2);
+    }
+
+    if(noError)
+    {
+        writefln("Container successfully spun up!\n");
+    }
+}
+
+void shutDownContainer(string servName,int servPort,string conName)
+{
+    bool noError = true;
+    string cmd2 = format("ssh -o StrictHostKeyChecking=no 0.0.0.0 -p %s 'docker stop %s'", servPort,conName);
+    auto res2 = executeShell(cmd2);
+    if(res2.status != 0)
+    {
+        noError = false;
+        writefln("Container shutdown failed\n %s\n",cmd2);
+    }
+
+    string cmd1 = format("VBoxManage controlvm %s natpf1 delete %s",servName,conName);
+    auto res1 = executeShell(cmd1);
+    if(res1.status != 0)
+    {
+        noError = false;
+        writefln("VM modification failed\n %s\n",cmd1);
+    }
+
+    if(noError)
+    {
+        writefln("Container successfully shut down!\n");
+    }
+}
+
 void spinUpServer(string servName,int servPort)
 {
     bool noError = true;
@@ -90,6 +140,14 @@ void handleInput(string input)
     else if(cmdVals["cmd"] == "deleteVM")
     {
         shutDownServer(cmdVals["servName"]);
+    }
+    else if(cmdVals["cmd"] == "createCon")
+    {
+        spinUpContainer(cmdVals["servName"],to!int(cmdVals["servPort"]),cmdVals["conName"],to!int(cmdVals["conPort"]),cmdVals["conType"]);
+    }
+    else if(cmdVals["cmd"] == "deleteCon")
+    {
+        shutDownContainer(cmdVals["servName"],to!int(cmdVals["servPort"]),cmdVals["conName"]);
     }
 }
 
