@@ -1,0 +1,41 @@
+{
+	"authors": [
+		"Dev"
+	],
+	"copyright": "Copyright © 2022, Dev",
+	"dependencies": {
+		"tinyredis": "~>2.3.0"
+	},
+	"description": "A minimal D application.",
+	"license": "proprietary",
+	"name": "simusys",
+	"configurations": [
+		{
+			"name": "observer",
+			"mainSourceFile": "observer.d",
+			"targetName": "observer",
+			"targetType": "executable",
+			"dependencies": {
+				"tinyredis": "~>2.3.0"
+			}
+		},
+		{
+			"name": "executor",
+			"mainSourceFile": "executor.d",
+			"targetName": "executor",
+			"targetType": "executable",
+			"dependencies": {
+				"tinyredis": "~>2.3.0"
+			}
+		},
+		{
+			"name": "orchestrator",
+			"mainSourceFile": "orchestrator.d",
+			"targetName": "orchestrator",
+			"targetType": "executable",
+			"dependencies": {
+				"tinyredis": "~>2.3.0"
+			}
+		}
+	]
+}

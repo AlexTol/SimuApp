@@ -1,0 +1,7 @@
+//get all configs
+CONFIG GET *
+//get log level
+CONFIG GET loglevel
+
+//setting config values
+CONFIG SET <CONFIG_SETTING_NAME> <NEW_CONFIG_VALUE>

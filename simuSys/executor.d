@@ -21,7 +21,7 @@ string[string] processInput(string input)
     return cmdVals;
 }
 
-void spinUpContainer(string servName,int servPort,string conName,int containerPort,string conType)
+void spinUpContainer(Socket obsSock,string servName,int servPort,string conName,int containerPort,string conType)
 {
     bool noError = true;
     string cmd1 = format("vboxmanage controlvm \"%s\" natpf1 \"%s,tcp,,%s,,%s\"",servName,conName,containerPort,containerPort);
@@ -43,10 +43,12 @@ void spinUpContainer(string servName,int servPort,string conName,int containerPo
     if(noError)
     {
         writefln("Container successfully spun up!\n");
+        string data = format("type:containeradd,conName:%s,conPort:%s,conType:%s,servName:%s,servPort:%s,buff:buff\r\n",conName,containerPort,conType,servName,servPort);
+        obsSock.send(data);
     }
 }
 
-void shutDownContainer(string servName,int servPort,string conName)
+void shutDownContainer(Socket obsSock,string servName,int servPort,string conName)
 {
     bool noError = true;
     string cmd2 = format("ssh -o StrictHostKeyChecking=no 0.0.0.0 -p %s 'docker stop %s'", servPort,conName);
@@ -68,10 +70,12 @@ void shutDownContainer(string servName,int servPort,string conName)
     if(noError)
     {
         writefln("Container successfully shut down!\n");
+        string data = format("type:containerdel,conName:%s,servName:%s,buff:buff\r\n",conName,servName);
+        obsSock.send(data);
     }
 }
 
-void spinUpServer(string servName,int servPort)
+void spinUpServer(Socket obsSock,string servName,int servPort,int CPU,float MEM,string region)
 {
     bool noError = true;
     string cmd1 = format("vboxmanage clonevm serverImage --name=%s --snapshot=serverImageSnap --register --options=Link",servName);
@@ -101,10 +105,12 @@ void spinUpServer(string servName,int servPort)
     if(noError)
     {
         writefln("Server successfully spun up!\n");
+        string data = format("type:serveradd,servName:%s,servPort:%s,servCPU:%s,servMem:%s,region:%s,buff:buff\r\n",servName,servPort,CPU,MEM,region);
+        obsSock.send(data);
     }
 }
 
-void shutDownServer(string servName)
+void shutDownServer(Socket obsSock,string servName)
 {
     bool noError = true;
     string cmd1 = format("vboxmanage controlvm %s poweroff soft",servName);
@@ -126,28 +132,29 @@ void shutDownServer(string servName)
     if(noError)
     {
         writefln("Server successfully shut down!\n");
+        string data = format("type:serverdel,servName:%s,buff:buff\r\n",servName);
+        obsSock.send(data);
     }
 }
 
-void handleInput(string input)
+void handleInput(string[string] cmdVals,Socket obsSock)
 {
-    string[string] cmdVals = processInput(input);
 
     if(cmdVals["cmd"] == "createVM")
     {
-        spinUpServer(cmdVals["servName"],to!int(cmdVals["servPort"]));
+        spinUpServer(obsSock,cmdVals["servName"],to!int(cmdVals["servPort"]),to!int(cmdVals["servCPU"]),to!float(cmdVals["servMEM"]),cmdVals["region"]);
     }
     else if(cmdVals["cmd"] == "deleteVM")
     {
-        shutDownServer(cmdVals["servName"]);
+        shutDownServer(obsSock,cmdVals["servName"]);
     }
     else if(cmdVals["cmd"] == "createCon")
     {
-        spinUpContainer(cmdVals["servName"],to!int(cmdVals["servPort"]),cmdVals["conName"],to!int(cmdVals["conPort"]),cmdVals["conType"]);
+        spinUpContainer(obsSock,cmdVals["servName"],to!int(cmdVals["servPort"]),cmdVals["conName"],to!int(cmdVals["conPort"]),cmdVals["conType"]);
     }
     else if(cmdVals["cmd"] == "deleteCon")
     {
-        shutDownContainer(cmdVals["servName"],to!int(cmdVals["servPort"]),cmdVals["conName"]);
+        shutDownContainer(obsSock,cmdVals["servName"],to!int(cmdVals["servPort"]),cmdVals["conName"]);
     }
 }
 
@@ -172,6 +179,8 @@ void main(string[] args)
     auto socketSet = new SocketSet(MAX_CONNECTIONS + 1);
     Socket[] reads;
 
+    Socket observerSock;
+
     while (true)
     {
         socketSet.add(listener);
@@ -193,7 +202,17 @@ void main(string[] args)
                 else if (datLength != 0)
                 {
                     writefln("Received %d bytes from %s: \"%s\"", datLength, reads[i].remoteAddress().toString(), buf[0..datLength-1]);
-                    handleInput(to!string(buf[0..datLength-1]));
+                    string[string] cmdVals = processInput(to!string(buf[0..datLength-1]));
+
+                    if(cmdVals["cmd"] == "connectObs")
+                    {
+                        observerSock = new TcpSocket(new InternetAddress("127.0.0.1", 7001));
+                    }
+                    else
+                    {
+                        handleInput(cmdVals,observerSock);
+                    }
+
                     continue;
                 }
                 else

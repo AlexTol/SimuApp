@@ -14,3 +14,18 @@ sudo ./executor
 
 //ssh with no key checking
 ssh -o StrictHostKeyChecking=no 0.0.0.0 -p 9001
+
+//build with dub
+dub build --config=observer
+
+
+//netcat commands
+cmd:connectObs,buff:buff
+cmd:createVM,servName:s1,servPort:8000,servCPU:4,servMEM:4,region:NA,buff:buff
+cmd:deleteVM,servName:s1,buff:buff
+cmd:createCon,servName:s1,servPort:8000,conName:c1,conPort:9000,conType:C,buff:buff
+cmd:createCon,servName:s1,servPort:8000,conName:c2,conPort:9001,conType:B,buff:buff
+cmd:createCon,servName:s1,servPort:8000,conName:c3,conPort:9002,conType:D,buff:buff
+cmd:deleteCon,servName:s1,servPort:8000,conName:c3,buff:buff
+cmd:deleteCon,servName:s1,servPort:8000,conName:c2,buff:buff
+cmd:deleteCon,servName:s1,servPort:8000,conName:c1,buff:buff
