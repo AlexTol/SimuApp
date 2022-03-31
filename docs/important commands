@@ -29,3 +29,17 @@ cmd:createCon,servName:s1,servPort:8000,conName:c3,conPort:9002,conType:D,buff:b
 cmd:deleteCon,servName:s1,servPort:8000,conName:c3,buff:buff
 cmd:deleteCon,servName:s1,servPort:8000,conName:c2,buff:buff
 cmd:deleteCon,servName:s1,servPort:8000,conName:c1,buff:buff
+
+cmd:connect,buff:buff
+cmd:createVM,servCPU:4,servMEM:4,region:NA,buff:buff
+cmd:deleteVM,servName:s1,buff:buff
+cmd:deleteVM,servName:s2,buff:buff
+cmd:deleteVM,servName:s3,buff:buff
+cmd:deleteVM,servName:s4,buff:buff
+cmd:createCon,servName:s2,servPort:7201,conType:C,buff:buff
+cmd:createCon,servName:s2,servPort:7201,conType:C,buff:buff
+cmd:createCon,servName:s2,servPort:7201,conType:C,buff:buff
+cmd:deleteCon,servName:s2,servPort:7201,conName:c1,buff:buff
+cmd:deleteCon,servName:s2,servPort:7201,conName:c2,buff:buff
+cmd:deleteCon,servName:s2,servPort:7201,conName:c3,buff:buff
+cmd:createCon,servName:s1,servPort:7200,conType:C,buff:buff

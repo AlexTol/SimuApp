@@ -5,6 +5,7 @@ import std.conv : to;
 import std.socket : InternetAddress, Socket, SocketException, SocketSet, TcpSocket;
 import std.stdio : writeln, writefln;
 import tinyredis;
+import std.parallelism;
 
 string[string] processInput(string input)
 {
@@ -25,6 +26,18 @@ void handleInput(string[string] cmdVals,Redis db)
 
     if(cmdVals["type"] == "serveradd")
     {
+        string freeServQuery = format("SREM free_servers %s",
+        cmdVals["servName"][1..$]);
+        db.send(freeServQuery);
+
+        string freePortQuery = format("SREM free_Ports %s",
+        cmdVals["servPort"]);
+        db.send(freePortQuery);
+
+        string regionServQuery = format("SADD %s_servers %s",
+        cmdVals["region"],cmdVals["servName"]);
+        db.send(regionServQuery);
+
         string query = format("HMSET %s servPort \"%s\" servCPU \"%s\" servMEM \"%s\" region \"%s\"",
             cmdVals["servName"],cmdVals["servPort"],cmdVals["servCPU"],cmdVals["servMem"],cmdVals["region"]);
         
@@ -40,14 +53,51 @@ void handleInput(string[string] cmdVals,Redis db)
 
         foreach(k,v; containers.values)
         {
+            string freeConPortQuery = format("HMGET %s conPort",
+            v.value);
+            Response conPorts = db.send(freeConPortQuery);
+
             string sdelConQuery = format("SREM %s_containers %s",
             cmdVals["servName"],v.value);
 
             string delConQuery = format("DEL %s",
             v.value);
 
+            string freeConQuery = format("SADD free_containers %s",
+            v.value[1..$]);
+
             db.send(sdelConQuery);
             db.send(delConQuery);
+            db.send(freeConQuery);
+
+            //free up container ports
+            foreach(k1,v1; conPorts.values)
+            {
+                string freePortQuery1 = format("SADD free_Ports %s",
+                v1.value);
+                db.send(freePortQuery1);
+            }
+        }
+
+        //free up server ports
+        string freeServPortQuery = format("HMGET %s servPort",
+        cmdVals["servName"]);
+        Response servPorts = db.send(freeServPortQuery);
+        foreach(k2,v2; servPorts.values)
+        {
+            string freePortQuery2 = format("SADD free_Ports %s",
+            v2.value);
+            db.send(freePortQuery2);
+        }
+
+        string getRegionQuery = format("HMGET %s region",
+        cmdVals["servName"]);
+        Response regions = db.send(getRegionQuery);
+        foreach(k3,v3; regions.values)
+        {
+            string regionServQuery = format("SREM %s_servers %s",
+            v3.value,cmdVals["servName"]);
+            db.send(regionServQuery);
         }
 
         string query = format("DEL %s",
@@ -55,10 +105,22 @@ void handleInput(string[string] cmdVals,Redis db)
         
         db.send(query);
 
+        string freeServQuery = format("SADD free_servers %s",
+        cmdVals["servName"][1..$]);
+        db.send(freeServQuery);
+
         writefln("server %s deleted!\n",cmdVals["servName"]);
     }
     else if(cmdVals["type"] == "containeradd")
     {
+        string freeConQuery = format("SREM free_containers %s",
+        cmdVals["conName"][1..$]);
+        db.send(freeConQuery);
+
+        string freePortQuery = format("SREM free_Ports %s",
+        cmdVals["conPort"]);
+        db.send(freePortQuery);
+
         string query = format("HMSET %s conPort \"%s\" conType \"%s\" servName \"%s\" servPort \"%s\"",
             cmdVals["conName"],cmdVals["conPort"],cmdVals["conType"],cmdVals["servName"],cmdVals["servPort"]);
         
@@ -76,10 +138,24 @@ void handleInput(string[string] cmdVals,Redis db)
         cmdVals["servName"],cmdVals["conName"]);
         db.send(setDelQuery);
 
+        //free up container ports
+        string freeConPortQuery = format("HMGET %s conPort",
+        cmdVals["conName"]);
+        Response conPorts = db.send(freeConPortQuery);
+        foreach(k1,v1; conPorts.values)
+        {
+            string freePortQuery1 = format("SADD free_Ports %s",
+            v1.value);
+            db.send(freePortQuery1);
+        }
+
         string query = format("Del %s",
-            cmdVals["conName"]);
-        
+        cmdVals["conName"]);   
         db.send(query);
+
+        string freeConQuery = format("SADD free_containers %s",
+        cmdVals["conName"][1..$]);
+        db.send(freeConQuery);
 
         writefln("scontainer %s deleted!\n",cmdVals["conName"]);
     }
@@ -128,8 +204,17 @@ void main(string[] args)
                 else if (datLength != 0)
                 {
                     writefln("Received %d bytes from %s: \"%s\"", datLength, reads[i].remoteAddress().toString(), buf[0..datLength-1]);
-                    string[string] cmdVals = processInput(to!string(buf[0..datLength-1]));
-                    handleInput(cmdVals,redis);
+
+                    string[] batches = to!string(buf[0..datLength-1]).split(",buff:buff");
+
+                    foreach(string cmdLine; batches)
+                    {
+                        string[string] cmdVals = processInput(cmdLine);
+                        auto t = task!handleInput(cmdVals,redis);
+                        t.executeInNewThread();
+                        t.workForce;
+                    }
+
                     continue;
                 }
 
