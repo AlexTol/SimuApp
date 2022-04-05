@@ -203,13 +203,20 @@ void main(string[] args)
                     writeln("Connection error.");
                 else if (datLength != 0)
                 {
-                    writefln("Received %d bytes from %s: \"%s\"", datLength, reads[i].remoteAddress().toString(), buf[0..datLength-1]);
+                    writefln("Received %d bytes from %s: \"%s\"", datLength, reads[i].remoteAddress().toString(), buf[0..datLength]);
 
-                    string[] batches = to!string(buf[0..datLength-1]).split(",buff:buff");
-
+                    string[] batches = to!string(buf[0..datLength]).split(",buff:buff");
+                    writefln("batch: %s\n",batches);
                     foreach(string cmdLine; batches)
                     {
                         string[string] cmdVals = processInput(cmdLine);
+
+                        if(empty(cmdVals))
+                        {
+                            writefln("Empty cmdVals instance:\n");
+                            continue;
+                        }
+
                         auto t = task!handleInput(cmdVals,redis);
                         t.executeInNewThread();
                         t.workForce;

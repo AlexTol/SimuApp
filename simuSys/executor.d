@@ -19,7 +19,7 @@ shared int[] freedPorts;
 shared int serverNum = 1;
 shared int containerNum = 1;
 shared int portNum = 7200;
-shared Socket[string] socks;
+Socket[string] socks;
 
 
 void refreshFreedEntities(Redis db)
@@ -75,7 +75,7 @@ string[string] processInput(string input)
     return cmdVals;
 }
 
-void spinUpContainer(shared Socket obsSock,string servName,int servPort,string conName,int containerPort,string conType)
+void spinUpContainer(Socket obsSock,string servName,int servPort,string conName,int containerPort,string conType)
 {
     bool noError = true;
     string cmd1 = format("vboxmanage controlvm \"%s\" natpf1 \"%s,tcp,,%s,,%s\"",servName,conName,containerPort,containerPort);
@@ -97,16 +97,15 @@ void spinUpContainer(shared Socket obsSock,string servName,int servPort,string c
     if(noError)
     {
         writefln("Container successfully spun up!\n");
-        string data = format("type:containeradd,conName:%s,conPort:%s,conType:%s,servName:%s,servPort:%s,buff:buff\r\n",conName,containerPort,conType,servName,servPort);
+        string data = format("type:containeradd,conName:%s,conPort:%s,conType:%s,servName:%s,servPort:%s,buff:buff",conName,containerPort,conType,servName,servPort);
         synchronized 
         {
-            Socket nonSharedObsSock = cast(Socket)obsSock;
-            nonSharedObsSock.send(data);
+            obsSock.send(data);
         }
     }
 }
 
-void shutDownContainer(Redis db,shared Socket obsSock,string servName,int servPort,string conName)
+void shutDownContainer(Redis db,Socket obsSock,string servName,int servPort,string conName)
 {
     bool noError = true;
     
@@ -137,16 +136,15 @@ void shutDownContainer(Redis db,shared Socket obsSock,string servName,int servPo
     if(noError)
     {
         writefln("Container successfully shut down!\n");
-        string data = format("type:containerdel,conName:%s,servName:%s,buff:buff\r\n",conName,servName);
+        string data = format("type:containerdel,conName:%s,servName:%s,buff:buff",conName,servName);
         synchronized 
         {
-            Socket nonSharedObsSock = cast(Socket)obsSock;
-            nonSharedObsSock.send(data);
+            obsSock.send(data);
         }
     }
 }
 
-void spinUpServer(shared Socket obsSock,string servName,int servPort,int CPU,float MEM,string region)
+void spinUpServer(Socket obsSock,string servName,int servPort,int CPU,float MEM,string region)
 {
     writefln("here!!!2\n");
     bool noError = true;
@@ -177,16 +175,15 @@ void spinUpServer(shared Socket obsSock,string servName,int servPort,int CPU,flo
     if(noError)
     {
         writefln("Server successfully spun up!\n");
-        string data = format("type:serveradd,servName:%s,servPort:%s,servCPU:%s,servMem:%s,region:%s,buff:buff\r\n",servName,servPort,CPU,MEM,region);
+        string data = format("type:serveradd,servName:%s,servPort:%s,servCPU:%s,servMem:%s,region:%s,buff:buff",servName,servPort,CPU,MEM,region);
         synchronized 
         {
-            Socket nonSharedObsSock = cast(Socket)obsSock;
-            nonSharedObsSock.send(data);
+            obsSock.send(data);
         }
     }
 }
 
-void shutDownServer(Redis db,shared Socket obsSock,string servName)
+void shutDownServer(Redis db,Socket obsSock,string servName)
 {
     bool noError = true;
     string cmd1 = format("vboxmanage controlvm %s poweroff soft",servName);
@@ -208,16 +205,15 @@ void shutDownServer(Redis db,shared Socket obsSock,string servName)
     if(noError)
     {
         writefln("Server successfully shut down!\n");
-        string data = format("type:serverdel,servName:%s,buff:buff\r\n",servName);
+        string data = format("type:serverdel,servName:%s,buff:buff",servName);
         synchronized 
         {
-            Socket nonSharedObsSock = cast(Socket)obsSock;
-            nonSharedObsSock.send(data);
+            obsSock.send(data);
         }
     }
 }
 
-void totalShutDown(Redis db,shared Socket obsSock)
+void totalShutDown(Redis db,Socket obsSock,Socket orchSock)
 {
     string[] servers;
 
@@ -229,11 +225,11 @@ void totalShutDown(Redis db,shared Socket obsSock)
     {
         string serverQuery = format("SMEMBERS %s_servers",v.value);
         Response rServs = db.send(serverQuery);
-        //writefln("%s",serverQuery);
+        writefln("%s",serverQuery);
 
         foreach(k1,v1; rServs.values)
         {
-            //writefln("%s",v1.value);
+            writefln("%s",v1.value);
             servers ~= v1.value;
         }
     }
@@ -244,9 +240,16 @@ void totalShutDown(Redis db,shared Socket obsSock)
     {
         shutDownServer(db,obsSock, serv);
     }
+
+    synchronized 
+    {
+        orchSock.send("cmd:shutDownComsExecuted,buff:buff");
+    }
+
+    writefln("All servers shut down!\n");
 }
 
-void handleInput(Redis db,string[string] cmdVals,shared Socket[string] socks)
+void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
 {
     refreshFreedEntities(db);
 
@@ -338,7 +341,7 @@ void handleInput(Redis db,string[string] cmdVals,shared Socket[string] socks)
     else if(cmdVals["cmd"] == "totalShut")
     {
         writefln("totalshutdown!\n");
-        totalShutDown(db,socks["obs"]);
+        totalShutDown(db,socks["obs"],socks["orch"]);
     }
 }
 
@@ -384,31 +387,28 @@ void main(string[] args)
                     writeln("Connection error.");
                 else if (datLength != 0)
                 {
-                    writefln("Received %d bytes from %s: \"%s\"", datLength, reads[i].remoteAddress().toString(), buf[0..datLength-1]);
+                    writefln("Received %d bytes from %s: \"%s\"", datLength, reads[i].remoteAddress().toString(), buf[0..datLength]);
 
-                    string[] batches = to!string(buf[0..datLength-1]).split(",buff:buff");
+                    string[] batches = to!string(buf[0..datLength]).split(",buff:buff");
 
                     foreach(string cmdLine; batches)
                     {
                         string[string] cmdVals = processInput(cmdLine);
-                        writefln("%s\n",cmdVals);
+                        writefln("cmdVals: %s\n",cmdVals);
 
-                        if(cmdVals["cmd"] == "connect")
+                        if(empty(cmdVals))
                         {
-                            Socket obs = new TcpSocket(new InternetAddress("127.0.0.1", 7001));
-                            Socket orch = new TcpSocket(new InternetAddress("127.0.0.1", 7002));
-        
-                            synchronized 
-                            {
-                                Socket[string] temp;
-                                temp["obs"] = obs;
-                                temp["orch"] = orch;
-                                socks = cast(shared Socket[string])temp;
-                            }
+                            writefln("Empty cmdVals instance:\n");
+                        }
+                        else if(cmdVals["cmd"] == "connect")
+                        {
+                            socks["obs"] = new TcpSocket(new InternetAddress("127.0.0.1", 7001));
+                            socks["orch"] = new TcpSocket(new InternetAddress("127.0.0.1", 7002));
+                            socks["orch"].blocking = false;
 
                             writefln("ON CONNECT\n");
                             writefln("%s\n",socks);
-                            orch.send("cmd:exFullyConnected,buff:buff");
+                            socks["orch"].send("cmd:exFullyConnected,buff:buff");
                         }
                         else
                         {

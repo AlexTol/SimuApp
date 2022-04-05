@@ -8,6 +8,9 @@ import tinyredis;
 import std.parallelism;
 
 shared bool exFullyConnected = false;
+shared bool shutDownComsExecuted = false;
+shared Socket exec;
+shared Socket obs;
 
 string[string] processInput(string input)
 {
@@ -28,9 +31,10 @@ void parallelSocketSend(Socket sock,string com)
     sock.send(com);
 }
 
-void startupServers(ref Socket[string] socks)
+void startupServers()
 {
     string[] initServComs;
+    Socket mExec = cast(Socket)exec;
 
     initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:8,servMEM:16,region:NA,buff:buff");
     initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:8,servMEM:16,region:SA,buff:buff");
@@ -41,9 +45,9 @@ void startupServers(ref Socket[string] socks)
 
     foreach(string com; initServComs)
     {
-        for(int i = 0; i < 3; i++)
+        for(int i = 0; i < 1; i++)
         {
-            auto t = task!parallelSocketSend(socks["exec"],com);
+            auto t = task!parallelSocketSend(mExec,com);
             t.executeInNewThread();
             t.yieldForce;
         }
@@ -51,33 +55,32 @@ void startupServers(ref Socket[string] socks)
 
 }
 
-void startupCons(ref Socket[string] socks)
+void startupCons()
 {
-    for(int i = 1; i <= 18; i++)
+    for(int i = 1; i <= 6; i++)
     {
         string containerCom1 = format("cmd:createCon,servName:s%s,conType:A,buff:buff",i);
         string containerCom2 = format("cmd:createCon,servName:s%s,conType:B,buff:buff",i);
         string containerCom3 = format("cmd:createCon,servName:s%s,conType:C,buff:buff",i);
         string containerCom4 = format("cmd:createCon,servName:s%s,conType:D,buff:buff",i);
 
-        socks["exec"].send(containerCom1);
-        socks["exec"].send(containerCom2);
-        socks["exec"].send(containerCom3);
-        socks["exec"].send(containerCom4);
+        Socket mExec = cast(Socket)exec;
+
+        mExec.send(containerCom1);
+        mExec.send(containerCom2);
+        mExec.send(containerCom3);
+        mExec.send(containerCom4);
     }
 }
 
-void initEnvironment(ref Socket[string] socks,ref Pid[] pids,Redis db)
+void initEnvironment(Redis db)
 {
     string basePath = "/home/dev/Projects/thesis/SimuApp/simuSys";
     string cmd1 = format("%s/executor",basePath);
     string cmd2 = format("%s/observer",basePath);
 
-    Pid pid1 = spawnProcess(cmd1);
-    Pid pid2 = spawnProcess(cmd2);
-
-    pids ~= pid1;
-    pids ~= pid2;
+    spawnProcess(cmd1);
+    spawnProcess(cmd2);
 
     string regionQuery = format("SADD regions NA SA EU AF AS AU");
     db.send(regionQuery);
@@ -87,7 +90,7 @@ void initEnvironment(ref Socket[string] socks,ref Pid[] pids,Redis db)
     {
         try
         {
-            socks["exec"] = new TcpSocket(new InternetAddress("127.0.0.1", 7000));
+            exec = cast(shared Socket)(new TcpSocket(new InternetAddress("127.0.0.1", 7000)));
             connect1 = true;
         }
         catch(SocketException e)
@@ -101,7 +104,7 @@ void initEnvironment(ref Socket[string] socks,ref Pid[] pids,Redis db)
     {
         try
         {
-            socks["obs"] = new TcpSocket(new InternetAddress("127.0.0.1", 7001));
+            obs = cast(shared Socket)(new TcpSocket(new InternetAddress("127.0.0.1", 7001)));
             connect2 = true;
         }
         catch(SocketException e)
@@ -111,7 +114,8 @@ void initEnvironment(ref Socket[string] socks,ref Pid[] pids,Redis db)
     }
     
     string execLinkCommand = format("cmd:connect,buff:buff");
-    socks["exec"].send(execLinkCommand);
+    Socket mExec = cast(Socket)exec;
+    mExec.send(execLinkCommand);
 
     //wait for socks to be fully connected
     while(!exFullyConnected)
@@ -121,41 +125,78 @@ void initEnvironment(ref Socket[string] socks,ref Pid[] pids,Redis db)
 
     writefln("Executor and Observer are online! \n");
 
-    startupServers(socks);
-    //startupCons(socks);
+    startupServers();
 
-    writefln("All servers and containers are up! \n");
+    int AUServs = 0;
+    while(AUServs < 1)
+    {
+        auto aus = db.send("SMEMBERS","AU_servers");
+        foreach(k,v; aus)
+        {
+            AUServs += 1;
+        }
+    }
+
+    writefln("All servers are up! \n");
+
+    startupCons();
+
+    int s6Cons = 0;
+    while(s6Cons < 4)
+    {
+        auto cons = db.send("SMEMBERS","s6_containers");
+        foreach(k,v; cons)
+        {
+            s6Cons += 1;
+        }
+    }
+
+    writefln("All containers are up! \n");
 }
 
-void shutDownEnvironment(ref Socket[string] socks,ref Pid[] pids,Redis db)
+void shutDownEnvironment(Redis db)
 {
+
     string totalShutDownCom = "cmd:totalShut,buff:buff";
-    socks["exec"].send(totalShutDownCom);
+    Socket mExec = cast(Socket)exec;
+    mExec.send(totalShutDownCom);
+
+    while(!shutDownComsExecuted)
+    {
+
+    }
 
     string flushQuery = "flushall";
     db.send(flushQuery);
 
-    foreach(Pid p; pids)
-    {
-        //kill(p);
-    }
+    string killEXECcom = "fuser -k 7000/tcp";
+    string killOBScom = "fuser -k 7001/tcp";
+
+    //executeShell(killEXECcom);
+    //executeShell(killOBScom);
+
     writefln("All processes are off!\n",);
 }
 
-void handleInput(string[string] cmdVals,ref Pid[] pids,ref Socket[string] socks,Redis db)
+void handleInput(string[string] cmdVals,Redis db)
 {
     if(cmdVals["cmd"] == "initEnv")
     {
-        initEnvironment(socks,pids,db);
+        initEnvironment(db);
     }
     else if(cmdVals["cmd"] == "shutDownEnv")
     {
-        shutDownEnvironment(socks,pids,db);
+        shutDownEnvironment(db);
     }
     else if(cmdVals["cmd"] == "exFullyConnected")
     {
         exFullyConnected = true;
         writefln("%s\n",exFullyConnected);
+    }
+    else if(cmdVals["cmd"] == "shutDownComsExecuted")
+    {
+        shutDownComsExecuted = true;
+        writefln("%s\n",shutDownComsExecuted);
     }
 }
 
@@ -181,8 +222,6 @@ void main(string[] args)
     Socket[] reads;
 
     auto redis = new Redis("localhost", 6379);
-    Pid[] pids;
-    Socket[string] socks;
     while (true)
     {
         socketSet.add(listener);
@@ -206,10 +245,10 @@ void main(string[] args)
                     writefln("Received %d bytes from %s: \"%s\"", datLength, reads[i].remoteAddress().toString(), buf[0..datLength-1]);
                     string[string] cmdVals = processInput(to!string(buf[0..datLength-1]));
                 
-                    auto t = task!handleInput(cmdVals,pids,socks,redis);
+                    auto t = task!handleInput(cmdVals,redis);
                     t.executeInNewThread();
                     //t.workForce;
-                    
+
                     continue;
                 }
 
@@ -229,10 +268,20 @@ void main(string[] args)
             {
                 writefln("Error accepting");
 
+                /**
                 if (sn)
-                    sn.close();
+                    sn.close();*/
             }
-            sn = listener.accept();
+            try
+            {
+                sn = listener.accept();
+            }
+            catch(SocketException e)
+            {
+                writefln("%s\n",e);
+                continue;
+            }
+
             assert(sn.isAlive);
             assert(listener.isAlive);
 
