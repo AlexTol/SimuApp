@@ -14,8 +14,11 @@ string[string] processInput(string input)
     string[] tuples = input.split(",");
     foreach (string tuple; tuples)
     {
-        string[] token = tuple.split(":");
-        cmdVals[token[0]] = token[1];
+        if(tuple != "" && tuple != "\n")
+        {
+            string[] token = tuple.split(":");
+            cmdVals[token[0]] = token[1];
+        }
     }
 
     return cmdVals;
@@ -38,8 +41,8 @@ void handleInput(string[string] cmdVals,Redis db)
         cmdVals["region"],cmdVals["servName"]);
         db.send(regionServQuery);
 
-        string query = format("HMSET %s servPort \"%s\" servCPU \"%s\" servMEM \"%s\" region \"%s\"",
-            cmdVals["servName"],cmdVals["servPort"],cmdVals["servCPU"],cmdVals["servMem"],cmdVals["region"]);
+        string query = format("HMSET %s servPort \"%s\" servCPU \"%s\" servMEM \"%s\" region \"%s\" availableCPU \"%s\" availableMEM \"%s\"",
+            cmdVals["servName"],cmdVals["servPort"],cmdVals["servCPU"],cmdVals["servMem"],cmdVals["region"],cmdVals["servCPU"],cmdVals["servMem"]);
         
         db.send(query);
 
@@ -121,6 +124,29 @@ void handleInput(string[string] cmdVals,Redis db)
         cmdVals["conPort"]);
         db.send(freePortQuery);
 
+        //deducts available cpu from server, need to change command to send conCPU
+        int availableCPU = 0;
+        string servCPUQuery = format("HMGET %s availableCPU",
+        cmdVals["servName"]);
+        Response cpuRes = db.send(servCPUQuery);
+        foreach(cpuK,cpuV; cpuRes.values)
+        {
+            availableCPU = to!int(cpuV) - to!int(cmdVals["conCPU"]);
+        }
+
+        int availableMEM = 0;
+        string servMEMQuery = format("HMGET %s availableMEM",
+        cmdVals["servName"]);
+        Response memRes = db.send(servMEMQuery);
+        foreach(memK,memV; memRes.values)
+        {
+            availableMEM  = to!int(memV) - to!int(cmdVals["conMEM"]);
+        }
+
+        string serverEditQuery = format("HMSET %s availableCPU %s availableMEM %s",
+            cmdVals["servName"],availableCPU,availableMEM);
+        db.send(serverEditQuery);
+
         string query = format("HMSET %s conPort \"%s\" conType \"%s\" servName \"%s\" servPort \"%s\"",
             cmdVals["conName"],cmdVals["conPort"],cmdVals["conType"],cmdVals["servName"],cmdVals["servPort"]);
         
@@ -131,7 +157,7 @@ void handleInput(string[string] cmdVals,Redis db)
         db.send(serverConQuery);
 
         writefln("scontainer %s saved!\n",cmdVals["conName"]);
-    }
+    }//todo write server edit for containerdel and edit the commands in executor
     else if(cmdVals["type"] == "containerdel")
     {
         string setDelQuery = format("SREM %s_containers %s",
@@ -148,6 +174,31 @@ void handleInput(string[string] cmdVals,Redis db)
             v1.value);
             db.send(freePortQuery1);
         }
+
+
+        //adds freed resources back to server
+        int availableCPU = 0;
+        string servCPUQuery = format("HMGET %s availableCPU",
+        cmdVals["servName"]);
+        Response cpuRes = db.send(servCPUQuery);
+        foreach(cpuK,cpuV; cpuRes.values)
+        {
+            availableCPU = to!int(cpuV) + to!int(cmdVals["conCPU"]);
+        }
+
+        int availableMEM = 0;
+        string servMEMQuery = format("HMGET %s availableMEM",
+        cmdVals["servName"]);
+        Response memRes = db.send(servMEMQuery);
+        foreach(memK,memV; memRes.values)
+        {
+            availableMEM  = to!int(memV) + to!int(cmdVals["conMEM"]);
+        }
+
+        string serverEditQuery = format("HMSET %s availableCPU %s availableMEM %s",
+            cmdVals["servName"],availableCPU,availableMEM);
+        db.send(serverEditQuery);
+
 
         string query = format("Del %s",
         cmdVals["conName"]);   
@@ -210,7 +261,7 @@ void main(string[] args)
                     foreach(string cmdLine; batches)
                     {
                         string[string] cmdVals = processInput(cmdLine);
-
+                        //also check for empty string or \n
                         if(empty(cmdVals))
                         {
                             writefln("Empty cmdVals instance:\n");

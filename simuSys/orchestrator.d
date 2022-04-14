@@ -3,9 +3,14 @@ import std.process;
 import std.algorithm : remove;
 import std.conv : to;
 import std.socket : InternetAddress, Socket, SocketException, SocketSet, TcpSocket;
+import std.datetime.systime : SysTime, Clock;
 import std.stdio : writeln, writefln;
 import tinyredis;
 import std.parallelism;
+import simuSys.classes.workload;
+import std.random;
+import core.time;
+import core.thread.osthread;
 
 shared bool exFullyConnected = false;
 shared bool shutDownComsExecuted = false;
@@ -19,8 +24,11 @@ string[string] processInput(string input)
     string[] tuples = input.split(",");
     foreach (string tuple; tuples)
     {
-        string[] token = tuple.split(":");
-        cmdVals[token[0]] = token[1];
+        if(tuple != "" && tuple != "\n")
+        {
+            string[] token = tuple.split(":");
+            cmdVals[token[0]] = token[1];
+        }
     }
 
     return cmdVals;
@@ -36,12 +44,12 @@ void startupServers()
     string[] initServComs;
     Socket mExec = cast(Socket)exec;
 
-    initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:8,servMEM:16,region:NA,buff:buff");
-    initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:8,servMEM:16,region:SA,buff:buff");
-    initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:8,servMEM:16,region:EU,buff:buff");
-    initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:8,servMEM:16,region:AF,buff:buff");
-    initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:8,servMEM:16,region:AS,buff:buff");
-    initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:8,servMEM:16,region:AU,buff:buff");
+    initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:100,servMEM:100,region:NA,buff:buff");
+    initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:100,servMEM:100,region:SA,buff:buff");
+    initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:100,servMEM:100,region:EU,buff:buff");
+    initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:100,servMEM:100,region:AF,buff:buff");
+    initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:100,servMEM:100,region:AS,buff:buff");
+    initServComs  ~= format("cmd:createVM,servName:s1,servPort:8000,servCPU:100,servMEM:100,region:AU,buff:buff");
 
     foreach(string com; initServComs)
     {
@@ -172,10 +180,70 @@ void shutDownEnvironment(Redis db)
     string killEXECcom = "fuser -k 7000/tcp";
     string killOBScom = "fuser -k 7001/tcp";
 
-    //executeShell(killEXECcom);
-    //executeShell(killOBScom);
+    executeShell(killEXECcom);
+    executeShell(killOBScom);
 
     writefln("All processes are off!\n",);
+}
+
+string generateRegion(int[] regionChances)
+{
+        int nsecs = cast(int)Clock.currTime().fracSecs.total!"nsecs";
+        auto rnd = Random(23456 * nsecs);
+        auto i = uniform!"[]"(1, 100, rnd);
+
+        if(i <= regionChances[0])
+        {
+            return "NA";
+        }
+        else if(i <= (regionChances[1] + regionChances[0]) && i > regionChances[0])
+        {
+            return "SA";
+        }
+        else if(i <= (regionChances[2] + regionChances[1] + regionChances[0]) && i > (regionChances[1] + regionChances[0]))
+        {
+            return "EU";
+        }
+        else if(i <= (regionChances[3] + regionChances[2] + regionChances[1] + regionChances[0]) && i > (regionChances[2] + regionChances[1] + regionChances[0]))
+        {
+            return "AF";
+        }
+        else if(i <= (regionChances[4] + regionChances[3] + regionChances[2] + regionChances[1] + regionChances[0]) && i > (regionChances[3] + regionChances[2] + regionChances[1] + regionChances[0]))
+        {
+            return "AS";
+        }
+        else 
+        {
+            return "AU";    
+        }
+}
+
+void generateTasks()
+{
+    int[] typechances = [40,20,20,20];
+    int[] regionChances = [50,5,25,5,10,5];
+    int wlid = 1;
+
+    while(true)
+    {
+        string region = generateRegion(regionChances);
+
+        int nsecs = cast(int)Clock.currTime().fracSecs.total!"nsecs";
+        auto rnd = Random(13579 * nsecs);
+        auto tasks = uniform!"[]"(1, 100, rnd);
+
+        Workload wl = new Workload(wlid,tasks,region,typechances);
+        foreach( task; wl.tasks)
+        {
+            writefln("%s\n",task.toTCPString());
+        }
+
+        Thread.sleep( dur!("seconds")( 5 ) );
+
+        wlid += 1;
+    }
+
+    //generate chances for regions and create and display workloads.
 }
 
 void handleInput(string[string] cmdVals,Redis db)
@@ -197,6 +265,10 @@ void handleInput(string[string] cmdVals,Redis db)
     {
         shutDownComsExecuted = true;
         writefln("%s\n",shutDownComsExecuted);
+    }
+    else if(cmdVals["cmd"] == "generateTasks")
+    {
+        generateTasks();
     }
 }
 

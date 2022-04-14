@@ -1,0 +1,20 @@
+{
+	"authors": [
+		"Dev"
+	],
+	"copyright": "Copyright © 2022, Dev",
+	"dependencies": {
+		"tinyredis": "~>2.3.0"
+	},
+	"description": "A minimal D application.",
+	"license": "proprietary",
+	"name": "classes",
+	"configurations": [
+		{
+			"name": "workload",
+			"mainSourceFile": "workload.d",
+			"targetName": "workload",
+			"targetType": "library"
+		}
+	]
+}

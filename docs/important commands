@@ -32,6 +32,7 @@ cmd:deleteCon,servName:s1,servPort:8000,conName:c1,buff:buff
 
 cmd:initEnv,buff:buff
 cmd:shutDownEnv,buff:buff
+cmd:generateTasks,buff:buff
 
 cmd:connect,buff:buff
 cmd:createVM,servCPU:4,servMEM:4,region:NA,buff:buff

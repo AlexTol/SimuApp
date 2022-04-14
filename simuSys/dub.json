@@ -35,7 +35,8 @@
 			"targetType": "executable",
 			"dependencies": {
 				"tinyredis": "~>2.3.0"
-			}
+			},
+			"sourceFiles": ["classes/workload.d"]
 		}
 	]
 }

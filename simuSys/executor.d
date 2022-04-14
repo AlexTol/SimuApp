@@ -68,14 +68,17 @@ string[string] processInput(string input)
     string[] tuples = input.split(",");
     foreach (string tuple; tuples)
     {
-        string[] token = tuple.split(":");
-        cmdVals[token[0]] = token[1];
+        if(tuple != "" && tuple != "\n")
+        {
+            string[] token = tuple.split(":");
+            cmdVals[token[0]] = token[1];
+        }
     }
 
     return cmdVals;
 }
 
-void spinUpContainer(Socket obsSock,string servName,int servPort,string conName,int containerPort,string conType)
+void spinUpContainer(Socket obsSock,string servName,int servPort,string conName,int containerPort,string conType,int conCPU,int conMEM)
 {
     bool noError = true;
     string cmd1 = format("vboxmanage controlvm \"%s\" natpf1 \"%s,tcp,,%s,,%s\"",servName,conName,containerPort,containerPort);
@@ -97,7 +100,8 @@ void spinUpContainer(Socket obsSock,string servName,int servPort,string conName,
     if(noError)
     {
         writefln("Container successfully spun up!\n");
-        string data = format("type:containeradd,conName:%s,conPort:%s,conType:%s,servName:%s,servPort:%s,buff:buff",conName,containerPort,conType,servName,servPort);
+        string data = format("type:containeradd,conName:%s,conPort:%s,conType:%s,servName:%s,servPort:%s,conCPU:%s,conMEM:%s,buff:buff",
+        conName,containerPort,conType,servName,servPort,conCPU,conMEM);
         synchronized 
         {
             obsSock.send(data);
@@ -298,6 +302,31 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
     {
         string cName = "c";
         int cPort = 0;
+        int cCPU = 0;
+        int cMEM = 0;
+
+        if(cmdVals["conType"] == "A")
+        {
+            cCPU = 2;
+            cMEM = 1;
+        }
+        else if(cmdVals["conType"] == "B")
+        {
+            cCPU = 2;
+            cMEM = 2;
+        }
+        else if(cmdVals["conType"] == "C")
+        {
+            cCPU = 4;
+            cMEM = 4;
+        }
+        else
+        {
+            cCPU = 8;
+            cMEM = 8;
+        }
+
+
         synchronized 
         {
             if(!empty(freedContainers))
@@ -321,18 +350,42 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
                 cPort = portNum;
                 atomicOp!"+="(portNum, 1);    
             }
-        }
 
-        string serverPort = "";
-        string serverPortQ = format("HMGET %s servPort",
-        cmdVals["servName"]);
-        Response portRes = db.send(serverPortQ);
-        foreach(k,v; portRes.values)
-        {
-            serverPort = v.value;
-        }
+            string servCPUQuery = format("HMGET %s availableCPU",
+            cmdVals["servName"]);
+            Response cpuRes = db.send(servCPUQuery);
+            foreach(cpuK,cpuV; cpuRes.values)
+            {
+                if(cCPU > to!int(cpuV))
+                {
+                    writefln("container creation canceled, not enough CPU! \n");
+                    return;
+                }
+            }
 
-        spinUpContainer(socks["obs"],cmdVals["servName"],to!int(serverPort),cName,cPort,cmdVals["conType"]);
+            string servMEMQuery = format("HMGET %s availableMEM",
+            cmdVals["servName"]);
+            Response memRes = db.send(servMEMQuery);
+            foreach(memK,memV; memRes.values)
+            {
+                if(cMEM > to!int(memV))
+                {
+                    writefln("container creation canceled, not enough MEM! \n");
+                    return;
+                }
+            }
+
+            string serverPort = "";
+            string serverPortQ = format("HMGET %s servPort",
+            cmdVals["servName"]);
+            Response portRes = db.send(serverPortQ);
+            foreach(k,v; portRes.values)
+            {
+                serverPort = v.value;
+            }
+
+            spinUpContainer(socks["obs"],cmdVals["servName"],to!int(serverPort),cName,cPort,cmdVals["conType"],cCPU,cMEM);
+        }
     }
     else if(cmdVals["cmd"] == "deleteCon")
     {
