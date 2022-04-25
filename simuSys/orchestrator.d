@@ -13,9 +13,12 @@ import core.time;
 import core.thread.osthread;
 
 shared bool exFullyConnected = false;
+shared bool agent1FullyConnected = false;
 shared bool shutDownComsExecuted = false;
+shared bool agent1Get = false;
 shared Socket exec;
 shared Socket obs;
+shared Socket agent1;
 
 string[string] processInput(string input)
 {
@@ -81,14 +84,25 @@ void startupCons()
     }
 }
 
+void waitSignal(ref bool sig)
+{
+    while(!sig)
+    {
+
+    }
+}
+
 void initEnvironment(Redis db)
 {
     string basePath = "/home/dev/Projects/thesis/SimuApp/simuSys";
+    string aiPath = "/home/dev/Projects/thesis/SimuApp/simuAI";
     string cmd1 = format("%s/executor",basePath);
     string cmd2 = format("%s/observer",basePath);
+    string agent1Path = format("%s/agent1.py",aiPath);
 
     spawnProcess(cmd1);
     spawnProcess(cmd2);
+    spawnProcess(["python",agent1Path]);
 
     string regionQuery = format("SADD regions NA SA EU AF AS AU");
     db.send(regionQuery);
@@ -120,16 +134,29 @@ void initEnvironment(Redis db)
             connect2 = false;
         }
     }
+
+    bool connect3 = false;
+    while(!connect3)
+    {
+        try
+        {
+            agent1 = cast(shared Socket)(new TcpSocket(new InternetAddress("127.0.0.1", 7003)));
+            connect3 = true;
+        }
+        catch(SocketException e)
+        {
+            connect3 = false;
+        }
+    }
     
     string execLinkCommand = format("cmd:connect,buff:buff");
     Socket mExec = cast(Socket)exec;
     mExec.send(execLinkCommand);
 
     //wait for socks to be fully connected
-    while(!exFullyConnected)
-    {
+    waitSignal(exFullyConnected);
 
-    }
+    waitSignal(agent1FullyConnected);
 
     writefln("Executor and Observer are online! \n");
 
@@ -166,7 +193,7 @@ void shutDownEnvironment(Redis db)
 {
 
     string totalShutDownCom = "cmd:totalShut,buff:buff";
-    Socket mExec = cast(Socket)exec;
+    Socket mExec = cast(Socket) exec;
     mExec.send(totalShutDownCom);
 
     while(!shutDownComsExecuted)
@@ -179,9 +206,11 @@ void shutDownEnvironment(Redis db)
 
     string killEXECcom = "fuser -k 7000/tcp";
     string killOBScom = "fuser -k 7001/tcp";
+    string killAgent1Com = "fuser -k 7003/tcp";
 
     executeShell(killEXECcom);
     executeShell(killOBScom);
+    executeShell(killAgent1Com);
 
     writefln("All processes are off!\n",);
 }
@@ -220,9 +249,11 @@ string generateRegion(int[] regionChances)
 
 void generateTasks()
 {
+    //todo send this to python agent and also make sure to save tasks to redis
     int[] typechances = [40,20,20,20];
     int[] regionChances = [50,5,25,5,10,5];
     int wlid = 1;
+    Socket mAgent1 = cast(Socket) agent1;
 
     while(true)
     {
@@ -235,10 +266,18 @@ void generateTasks()
         Workload wl = new Workload(wlid,tasks,region,typechances);
         foreach( task; wl.tasks)
         {
-            writefln("%s\n",task.toTCPString());
+            string cmd = format("%s",task.toTCPString());
+            //writefln("%s\n",task.toTCPString());
+
+            mAgent1.send(cmd);
+            while(!agent1Get)
+            {
+
+            }
+            agent1Get = false;
         }
 
-        Thread.sleep( dur!("seconds")( 5 ) );
+        Thread.sleep(dur!("seconds")( 60)); //todo change this back to 5
 
         wlid += 1;
     }
@@ -261,6 +300,10 @@ void handleInput(string[string] cmdVals,Redis db)
         exFullyConnected = true;
         writefln("%s\n",exFullyConnected);
     }
+    else if(cmdVals["cmd"] == "agent1FullyConnected")
+    {
+        agent1FullyConnected = true;
+    }
     else if(cmdVals["cmd"] == "shutDownComsExecuted")
     {
         shutDownComsExecuted = true;
@@ -269,6 +312,10 @@ void handleInput(string[string] cmdVals,Redis db)
     else if(cmdVals["cmd"] == "generateTasks")
     {
         generateTasks();
+    }
+    else if(cmdVals["cmd"] == "agent1Get")
+    {
+        agent1Get = true;
     }
 }
 

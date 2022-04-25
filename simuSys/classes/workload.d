@@ -122,7 +122,7 @@ class Workload
 
         string toTCPString()
         {
-            return format("cmd:task,id:%s,type:%s,timetocomplete:%s,region:%s,deps:%s",this.id,this.type,this.timeToComplete,this.region,this.dependency);
+            return format("cmd:stask,id:%s,type:%s,timetocomplete:%s,region:%s,deps:%s,buff:buff",this.id,this.type,this.timeToComplete,this.region,this.dependency);
         }
 
         void addDependency(int depID)

@@ -12,6 +12,8 @@ import tinyredis;
 import std.parallelism;
 import std.concurrency;
 import core.atomic;
+import std.net.curl;
+import simuSys.classes.workload;
 
 shared int[] freedServers;
 shared int[] freedContainers;
@@ -253,8 +255,67 @@ void totalShutDown(Redis db,Socket obsSock,Socket orchSock)
     writefln("All servers shut down!\n");
 }
 
-void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
+void sendRequest(int port, Task t,DateTime timestamp,Socket obsSock)
 {
+    int cpu = 0;
+    float mem = 0;
+
+    if(t.type == "A")
+    {
+        cpu = 1;
+        mem = .5;
+    }
+    else if(t.type == "B")
+    {
+        cpu = 1;
+        mem = 1;
+    }
+    else if(t.type == "C")
+    {
+        cpu = 1;
+        mem = 1;
+    }
+    else 
+    {
+        cpu = 1;
+        mem = 1;
+    }
+        //todo if it has dependencies, wait on dependency, need to check redis.
+
+        int complete = 0;
+        string url = format("localhost:%s/simu",port);
+        auto res = post(url, ["jobmem" : mem, "jobcpu" : cpu]);
+        auto duration = Clock.currTime().fracSecs.total - timestamp;
+        int elapsed = cast(int) duration.total!"msecs";
+
+        writefln("%s\n",res);
+        while(res["message" == "FAIL"])
+        {
+            res = post(url, ["jobmem" : mem, "jobcpu" : cpu]);
+            duration = Clock.currTime().fracSecs.total - timestamp;
+            elapsed = cast(int) duration.total!"msecs";
+
+            if(elapsed > t.timeToComplete * 1000)
+            {
+                string data = format("type:reqStatus,tid:%s,type:%s,region:%s,completed:%s,elapsed:%s,buff:buff",t.id,t.type,t.region,complete,elapsed);
+                synchronized 
+                {
+                    obsSock.send(data);
+                }
+            }
+        }
+        complete = 1;
+
+        writefln("time elapsed %s\n",);
+        string data = format("type:reqStatus,tid:%s,type:%s,region:%s,completed:%s,elapsed:%s,buff:buff",t.id,t.type,t.region,complete,elapsed);
+        synchronized 
+        {
+            obsSock.send(data);
+        }
+}
+
+void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
+{ 
     refreshFreedEntities(db);
 
     if(cmdVals["cmd"] == "createVM")
@@ -359,6 +420,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
                 if(cCPU > to!int(cpuV))
                 {
                     writefln("container creation canceled, not enough CPU! \n");
+                    //todo send to agent
                     return;
                 }
             }
@@ -371,6 +433,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
                 if(cMEM > to!int(memV))
                 {
                     writefln("container creation canceled, not enough MEM! \n");
+                    //todo send to agent
                     return;
                 }
             }
@@ -395,6 +458,10 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
     {
         writefln("totalshutdown!\n");
         totalShutDown(db,socks["obs"],socks["orch"]);
+    }
+    else if(cmdVals["cmd"] == "sendReq")
+    {
+        //todo make cmd
     }
 }
 

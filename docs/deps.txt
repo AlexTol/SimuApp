@@ -1,0 +1,7 @@
+redis for dlang
+
+install pip
+install redis for python using pip
+
+use netcat to test
+
