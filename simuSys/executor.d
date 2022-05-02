@@ -14,6 +14,8 @@ import std.concurrency;
 import core.atomic;
 import std.net.curl;
 import simuSys.classes.workload;
+import std.datetime.date : DateTime;
+import std.datetime.systime : SysTime, Clock;
 
 shared int[] freedServers;
 shared int[] freedContainers;
@@ -255,7 +257,7 @@ void totalShutDown(Redis db,Socket obsSock,Socket orchSock)
     writefln("All servers shut down!\n");
 }
 
-void sendRequest(int port, Task t,DateTime timestamp,Socket obsSock)
+void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,string[string] cmdVals)
 {
     int cpu = 0;
     float mem = 0;
@@ -280,38 +282,62 @@ void sendRequest(int port, Task t,DateTime timestamp,Socket obsSock)
         cpu = 1;
         mem = 1;
     }
-        //todo if it has dependencies, wait on dependency, need to check redis.
+    
+    //todo if it has dependencies, wait on dependency, need to check redis.
+    if(t.dependency != -1 )
+    {
+        string wlid = t.id.split("_")[0];
 
-        int complete = 0;
-        string url = format("localhost:%s/simu",port);
-        auto res = post(url, ["jobmem" : mem, "jobcpu" : cpu]);
-        auto duration = Clock.currTime().fracSecs.total - timestamp;
-        int elapsed = cast(int) duration.total!"msecs";
+        string checkDepQuery = format("HGETALL %s_%s",wlid,t.dependency);
+        auto dep = db.send(checkDepQuery);
+        writefln("%s\n",dep);
 
-        writefln("%s\n",res);
-        while(res["message" == "FAIL"])
+        while(!empty(dep))
         {
-            res = post(url, ["jobmem" : mem, "jobcpu" : cpu]);
-            duration = Clock.currTime().fracSecs.total - timestamp;
-            elapsed = cast(int) duration.total!"msecs";
-
-            if(elapsed > t.timeToComplete * 1000)
-            {
-                string data = format("type:reqStatus,tid:%s,type:%s,region:%s,completed:%s,elapsed:%s,buff:buff",t.id,t.type,t.region,complete,elapsed);
-                synchronized 
-                {
-                    obsSock.send(data);
-                }
-            }
+            dep = db.send(checkDepQuery);
+            writefln("%s\n",dep);
         }
-        complete = 1;
+    }
 
-        writefln("time elapsed %s\n",);
-        string data = format("type:reqStatus,tid:%s,type:%s,region:%s,completed:%s,elapsed:%s,buff:buff",t.id,t.type,t.region,complete,elapsed);
+    int complete = 0;
+    int timeout = 0;
+    int rejected = 0;
+    string url = format("localhost:%s/simu",port);
+    auto res = post(url, ["jobmem" : to!string(mem), "jobcpu" : to!string(cpu)]);
+    SysTime timestamp2 = Clock.currTime().fracSecs.total!"msecs";
+    long duration = (timestamp2 - timestamp).total!"msecs";
+
+    writefln("%s\n",res);
+    while(res["message" == "FAIL"])
+    {
+        res = post(url, ["jobmem" : to!string(mem), "jobcpu" : to!string(cpu)]);
+        SysTime timestamp3 = Clock.currTime().fracSecs.total!"msecs";
+        duration = (timestamp3 - timestamp).total!"msecs";
+
+        if(duration > t.timeToComplete * 1000)
+        {
+            timeout = 1;
+        }
+
+        string data = format("type:reqStatus,tid:%s,type:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s
+        ,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
+        t.id,t.type,t.region,complete,duration,timeout,rejected,cmdVals["server"],cmdVals["con"],cpu,mem);
         synchronized 
         {
             obsSock.send(data);
         }
+
+    }
+    complete = 1;
+
+    writefln("time elapsed %s\n",);
+    string data = format("type:reqStatus,tid:%s,type:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,
+    server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
+    t.id,t.type,t.region,complete,duration,timeout,rejected,cmdVals["server"],cmdVals["con"],cpu,mem);
+    synchronized 
+    {
+        obsSock.send(data);
+    }
 }
 
 void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
@@ -420,7 +446,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
                 if(cCPU > to!int(cpuV))
                 {
                     writefln("container creation canceled, not enough CPU! \n");
-                    //todo send to agent
+                    //todo send to agent 3
                     return;
                 }
             }
@@ -433,7 +459,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
                 if(cMEM > to!int(memV))
                 {
                     writefln("container creation canceled, not enough MEM! \n");
-                    //todo send to agent
+                    //todo send to agent 3
                     return;
                 }
             }
@@ -461,7 +487,23 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
     }
     else if(cmdVals["cmd"] == "sendReq")
     {
-        //todo make cmd
+        //todo sort this out, also implement task type checking
+        if(cmdVals["type"] != cmdVals["contype"])
+        {
+            string data = format("type:reqStatus,tid:%s,type:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s
+            ,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
+            cmdVals["id"],cmdVals["type"],cmdVals["region"],"","","",1,cmdVals["server"],cmdVals["con"],0,0);
+            synchronized 
+            {
+                socks["obs"].send(data);
+            }
+            return;
+        }
+
+        Mtask t = new Mtask(cmdVals["id"],cmdVals["type"],to!float(cmdVals["timetocomplete"]),cmdVals["region"],to!int(cmdVals["deps"]));
+        SysTime startTime = Clock.currTime().fracSecs.total!"msecs";
+
+        sendRequest(to!int(cmdVals["port"]), t,startTime,socks["obs"],db,cmdVals);
     }
 }
 

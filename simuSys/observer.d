@@ -210,6 +210,19 @@ void handleInput(string[string] cmdVals,Redis db)
 
         writefln("scontainer %s deleted!\n",cmdVals["conName"]);
     }
+    else if(cmdVals["type"] == "reqStatus")
+    {
+        //todo log
+            string setQuery = format("SADD currentRequests %s",cmdVals["tid"]);
+            db.send(setQuery);
+
+            string reqQuery = format("HMSET %s type %s region %s completed %s elapsed %s timeout %s rejected %s 
+            server %s con %s tCPU %s tMem %s",
+            cmdVals["tid"],cmdVals["type"],cmdVals["region"],cmdVals["completed"],cmdVals["elapsed"],cmdVals["timeout"],
+            cmdVals["rejected"],cmdVals["server"],cmdVals["con"],cmdVals["tCPU"],cmdVals["tMEM"]);
+            db.send(reqQuery);
+    }
+
 }
 
 void main(string[] args)

@@ -84,7 +84,7 @@ void startupCons()
     }
 }
 
-void waitSignal(ref bool sig)
+void waitSignal(shared ref bool sig)
 {
     while(!sig)
     {

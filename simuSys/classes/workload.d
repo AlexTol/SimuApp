@@ -6,7 +6,7 @@ import std.format;
 
 class Workload
 {
-    Task[] tasks;
+    Mtask[] tasks;
     string region;
     int id;
     int aChance;
@@ -83,7 +83,7 @@ class Workload
         {
             string type = this.generateType();
             float thyme = generateTaskTime(type);
-            Task t = new Task(wlid,i,type,thyme,region);
+            Mtask t = new Mtask(wlid,i,type,thyme,region);
             this.tasks ~= t;
 
             if(t.willHaveDependents())
@@ -96,15 +96,16 @@ class Workload
                 {
                     string dtype = this.generateType();
                     float dthyme = generateTaskTime(dtype);
-                    Task dt = new Task(wlid,(y + primaryTasks - 1),dtype,dthyme,region);
+                    Mtask dt = new Mtask(wlid,(y + primaryTasks - 1),dtype,dthyme,region);
                     dt.addDependency(i);
                     this.tasks ~= dt;
                 }
             }
         }
     }
+}
 
-    class Task
+    class Mtask
     {
         string id;
         string type;
@@ -118,6 +119,15 @@ class Workload
             this.type = t;
             this.timeToComplete = time;
             this.region = region;
+        }
+
+        this(string comID,string t,float time,string region,int dep = -1)
+        {
+            this.id = comID;
+            this.type = t;
+            this.timeToComplete = time;
+            this.region = region;
+            this.dependency = dep;
         }
 
         string toTCPString()
@@ -146,4 +156,3 @@ class Workload
         }
 
     }
-}
