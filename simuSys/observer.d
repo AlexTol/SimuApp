@@ -149,7 +149,7 @@ void handleInput(string[string] cmdVals,Redis db)
 
         string query = format("HMSET %s conPort \"%s\" conType \"%s\" servName \"%s\" servPort \"%s\"",
             cmdVals["conName"],cmdVals["conPort"],cmdVals["conType"],cmdVals["servName"],cmdVals["servPort"]);
-        
+
         db.send(query);
 
         string serverConQuery= format("SADD %s_containers %s",
@@ -213,14 +213,17 @@ void handleInput(string[string] cmdVals,Redis db)
     else if(cmdVals["type"] == "reqStatus")
     {
         //todo log
+            writefln("saving request data!!!\n");
             string setQuery = format("SADD currentRequests %s",cmdVals["tid"]);
             db.send(setQuery);
 
-            string reqQuery = format("HMSET %s type %s region %s completed %s elapsed %s timeout %s rejected %s 
-            server %s con %s tCPU %s tMem %s",
-            cmdVals["tid"],cmdVals["type"],cmdVals["region"],cmdVals["completed"],cmdVals["elapsed"],cmdVals["timeout"],
-            cmdVals["rejected"],cmdVals["server"],cmdVals["con"],cmdVals["tCPU"],cmdVals["tMEM"]);
+            string reqQuery = format("HMSET %s type %s region %s completed %s elapsed %s timeout %s rejected %s server %s con %s tCPU %s tMEM %s",
+            cmdVals["tid"],cmdVals["tType"],cmdVals["region"],cmdVals["completed"],cmdVals["elapsed"],cmdVals["timeout"],cmdVals["rejected"],cmdVals["server"],cmdVals["con"],cmdVals["tCPU"],cmdVals["tMEM"]);
+            writefln("hmset query %s\n",reqQuery);
             db.send(reqQuery);
+    }
+    else {
+        writefln("no match! %s \n",cmdVals);
     }
 
 }
@@ -270,9 +273,10 @@ void main(string[] args)
                     writefln("Received %d bytes from %s: \"%s\"", datLength, reads[i].remoteAddress().toString(), buf[0..datLength]);
 
                     string[] batches = to!string(buf[0..datLength]).split(",buff:buff");
-                    writefln("batch: %s\n",batches);
+                    writefln("observer batches: %s\n",batches);
                     foreach(string cmdLine; batches)
                     {
+                        writefln("observer batch: %s\n",cmdLine);
                         string[string] cmdVals = processInput(cmdLine);
                         //also check for empty string or \n
                         if(empty(cmdVals))

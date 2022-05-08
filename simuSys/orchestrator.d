@@ -191,7 +191,7 @@ void initEnvironment(Redis db)
 
 void shutDownEnvironment(Redis db)
 {
-
+    //todo find better way to kill python socket (probably send signal), also make it so it catches the socket not available error (on obs or exec)
     string totalShutDownCom = "cmd:totalShut,buff:buff";
     Socket mExec = cast(Socket) exec;
     mExec.send(totalShutDownCom);

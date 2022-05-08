@@ -13,6 +13,7 @@ import std.parallelism;
 import std.concurrency;
 import core.atomic;
 import std.net.curl;
+import std.json;
 import simuSys.classes.workload;
 import std.datetime.date : DateTime;
 import std.datetime.systime : SysTime, Clock;
@@ -75,7 +76,15 @@ string[string] processInput(string input)
         if(tuple != "" && tuple != "\n")
         {
             string[] token = tuple.split(":");
-            cmdVals[token[0]] = token[1];
+            if(token.length > 1)
+            {
+                cmdVals[token[0]] = token[1];
+            }
+            else
+            {
+                writefln("odd len 1 array! %s\n",token);
+                writefln("whole input %s\n",input);
+            }
         }
     }
 
@@ -290,12 +299,11 @@ void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,str
 
         string checkDepQuery = format("HGETALL %s_%s",wlid,t.dependency);
         auto dep = db.send(checkDepQuery);
-        writefln("%s\n",dep);
+        writefln("dep: %s\n",dep);
 
         while(!empty(dep))
         {
             dep = db.send(checkDepQuery);
-            writefln("%s\n",dep);
         }
     }
 
@@ -304,12 +312,14 @@ void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,str
     int rejected = 0;
     string url = format("localhost:%s/simu",port);
     auto res = post(url, ["jobmem" : to!string(mem), "jobcpu" : to!string(cpu)]);
+    JSONValue resJSON = parseJSON(res);
     SysTime timestamp2 = Clock.currTime().fracSecs.total!"msecs";
     long duration = (timestamp2 - timestamp).total!"msecs";
 
-    writefln("%s\n",res);
-    while(res["message" == "FAIL"])
+    writefln("res: %s\n",res);
+    while(resJSON["message"].str == "FAIL")
     {
+        writefln("waiting on freed resources!: %s\n",res);
         res = post(url, ["jobmem" : to!string(mem), "jobcpu" : to!string(cpu)]);
         SysTime timestamp3 = Clock.currTime().fracSecs.total!"msecs";
         duration = (timestamp3 - timestamp).total!"msecs";
@@ -319,8 +329,7 @@ void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,str
             timeout = 1;
         }
 
-        string data = format("type:reqStatus,tid:%s,type:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s
-        ,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
+        string data = format("type:reqStatus,tid:%s,tType:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
         t.id,t.type,t.region,complete,duration,timeout,rejected,cmdVals["server"],cmdVals["con"],cpu,mem);
         synchronized 
         {
@@ -330,9 +339,8 @@ void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,str
     }
     complete = 1;
 
-    writefln("time elapsed %s\n",);
-    string data = format("type:reqStatus,tid:%s,type:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,
-    server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
+    writefln("time elapsed %s\n",duration);
+    string data = format("type:reqStatus,tid:%s,tType:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
     t.id,t.type,t.region,complete,duration,timeout,rejected,cmdVals["server"],cmdVals["con"],cpu,mem);
     synchronized 
     {
@@ -487,12 +495,13 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
     }
     else if(cmdVals["cmd"] == "sendReq")
     {
-        //todo sort this out, also implement task type checking
+        socks["agent1"].send("cmd:execget,buff:buff");
+
         if(cmdVals["type"] != cmdVals["contype"])
         {
-            string data = format("type:reqStatus,tid:%s,type:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s
-            ,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
-            cmdVals["id"],cmdVals["type"],cmdVals["region"],"","","",1,cmdVals["server"],cmdVals["con"],0,0);
+            writefln("wrong type!!!\n");
+            string data = format("type:reqStatus,tid:%s,tType:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
+            cmdVals["id"],cmdVals["type"],cmdVals["region"],"0","0","0",1,cmdVals["server"],cmdVals["con"],0,0);
             synchronized 
             {
                 socks["obs"].send(data);
@@ -567,6 +576,7 @@ void main(string[] args)
                             socks["obs"] = new TcpSocket(new InternetAddress("127.0.0.1", 7001));
                             socks["orch"] = new TcpSocket(new InternetAddress("127.0.0.1", 7002));
                             socks["orch"].blocking = false;
+                            socks["agent1"] = new TcpSocket(new InternetAddress("127.0.0.1", 7003));
 
                             writefln("ON CONNECT\n");
                             writefln("%s\n",socks);
