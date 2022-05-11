@@ -12,6 +12,7 @@ import tinyredis;
 import std.parallelism;
 import std.concurrency;
 import core.atomic;
+import core.time : Duration, msecs, hnsecs, nsecs;
 import std.net.curl;
 import std.json;
 import simuSys.classes.workload;
@@ -260,7 +261,7 @@ void totalShutDown(Redis db,Socket obsSock,Socket orchSock)
 
     synchronized 
     {
-        orchSock.send("cmd:shutDownComsExecuted,buff:buff");
+        orchSock.send("cmd:shutDownComsExecuted,buff:buff\r\n");
     }
 
     writefln("All servers shut down!\n");
@@ -310,27 +311,40 @@ void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,str
     int complete = 0;
     int timeout = 0;
     int rejected = 0;
+
+    //initial entry of task will be edited as time goes on
+    string initdata = format("type:reqStatus,tid:%s,tType:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
+    t.id,t.type,t.region,0,0,0,0,cmdVals["server"],cmdVals["con"],cpu,mem);
+    synchronized 
+    {
+        obsSock.send(initdata);
+    }
+
     string url = format("localhost:%s/simu",port);
     auto res = post(url, ["jobmem" : to!string(mem), "jobcpu" : to!string(cpu)]);
     JSONValue resJSON = parseJSON(res);
-    SysTime timestamp2 = Clock.currTime().fracSecs.total!"msecs";
-    long duration = (timestamp2 - timestamp).total!"msecs";
+    SysTime timestamp2 = Clock.currTime();
+    Duration dur = timestamp2 - timestamp;
+    long elap = dur.total!"msecs";
 
+    writefln("timestamp1 %s \n",timestamp);
+    writefln("timestamp2 %s \n",timestamp2);
     writefln("res: %s\n",res);
     while(resJSON["message"].str == "FAIL")
     {
         writefln("waiting on freed resources!: %s\n",res);
         res = post(url, ["jobmem" : to!string(mem), "jobcpu" : to!string(cpu)]);
-        SysTime timestamp3 = Clock.currTime().fracSecs.total!"msecs";
-        duration = (timestamp3 - timestamp).total!"msecs";
+        SysTime timestamp3 = Clock.currTime();
+        dur = timestamp3 - timestamp;
+        elap = dur.total!"msecs";
 
-        if(duration > t.timeToComplete * 1000)
+        if(elap > t.timeToComplete * 1000)
         {
             timeout = 1;
         }
 
         string data = format("type:reqStatus,tid:%s,tType:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
-        t.id,t.type,t.region,complete,duration,timeout,rejected,cmdVals["server"],cmdVals["con"],cpu,mem);
+        t.id,t.type,t.region,complete,elap,timeout,rejected,cmdVals["server"],cmdVals["con"],cpu,mem);
         synchronized 
         {
             obsSock.send(data);
@@ -339,9 +353,9 @@ void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,str
     }
     complete = 1;
 
-    writefln("time elapsed %s\n",duration);
+    writefln("time elapsed %s\n",elap);
     string data = format("type:reqStatus,tid:%s,tType:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
-    t.id,t.type,t.region,complete,duration,timeout,rejected,cmdVals["server"],cmdVals["con"],cpu,mem);
+    t.id,t.type,t.region,complete,elap,timeout,rejected,cmdVals["server"],cmdVals["con"],cpu,mem);
     synchronized 
     {
         obsSock.send(data);
@@ -495,7 +509,11 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
     }
     else if(cmdVals["cmd"] == "sendReq")
     {
-        socks["agent1"].send("cmd:execget,buff:buff");
+        synchronized 
+        {
+            socks["agent1"].send("cmd:execget,buff:buff");
+            writefln("sent to agent1!!!!!\n");
+        }
 
         if(cmdVals["type"] != cmdVals["contype"])
         {
@@ -510,7 +528,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
         }
 
         Mtask t = new Mtask(cmdVals["id"],cmdVals["type"],to!float(cmdVals["timetocomplete"]),cmdVals["region"],to!int(cmdVals["deps"]));
-        SysTime startTime = Clock.currTime().fracSecs.total!"msecs";
+        SysTime startTime = Clock.currTime();
 
         sendRequest(to!int(cmdVals["port"]), t,startTime,socks["obs"],db,cmdVals);
     }
@@ -532,7 +550,7 @@ void main(string[] args)
     listener.listen(10);
     writefln("Listening on port %d.", port);
 
-    enum MAX_CONNECTIONS = 1000;
+    enum MAX_CONNECTIONS = 120;
     // Room for listener.
     auto socketSet = new SocketSet(MAX_CONNECTIONS + 1);
     Socket[] reads;
@@ -574,9 +592,11 @@ void main(string[] args)
                         else if(cmdVals["cmd"] == "connect")
                         {
                             socks["obs"] = new TcpSocket(new InternetAddress("127.0.0.1", 7001));
+                            //socks["obs"].blocking = false;
                             socks["orch"] = new TcpSocket(new InternetAddress("127.0.0.1", 7002));
-                            socks["orch"].blocking = false;
+                            //socks["orch"].blocking = false;
                             socks["agent1"] = new TcpSocket(new InternetAddress("127.0.0.1", 7003));
+                            //socks["agent1"].blocking = false;
 
                             writefln("ON CONNECT\n");
                             writefln("%s\n",socks);

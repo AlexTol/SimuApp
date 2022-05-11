@@ -22,12 +22,12 @@ class App {
     Dat = data.split("\n")
 
     type = Dat[0].split(":")[1];
-    MEM = Dat[1].split(":")[1];
-    CPU = Dat[2].split(":")[1];
+    MEM = parseFloat(Dat[1].split(":")[1]);
+    CPU = parseFloat(Dat[2].split(":")[1]);
 
     router.post('/simu', async (req, res) => {
-        var jobMem = parseInt(req.get('jobmem'))
-        var jobCPU = parseInt(req.get('jobcpu'))
+        var jobMem = parseFloat(req.get('jobmem'))
+        var jobCPU = parseFloat(req.get('jobcpu'))
 
         if(jobMem > MEM)
         {

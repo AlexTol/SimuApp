@@ -58,9 +58,7 @@ void startupServers()
     {
         for(int i = 0; i < 1; i++)
         {
-            auto t = task!parallelSocketSend(mExec,com);
-            t.executeInNewThread();
-            t.yieldForce;
+            mExec.send(com);
         }
     }
 
@@ -112,7 +110,9 @@ void initEnvironment(Redis db)
     {
         try
         {
-            exec = cast(shared Socket)(new TcpSocket(new InternetAddress("127.0.0.1", 7000)));
+            auto rexec = (new TcpSocket(new InternetAddress("127.0.0.1", 7000)));
+            //rexec.blocking = false;
+            exec = cast(shared Socket) rexec;
             connect1 = true;
         }
         catch(SocketException e)
@@ -126,7 +126,9 @@ void initEnvironment(Redis db)
     {
         try
         {
-            obs = cast(shared Socket)(new TcpSocket(new InternetAddress("127.0.0.1", 7001)));
+            auto robs = (new TcpSocket(new InternetAddress("127.0.0.1", 7001)));
+            //robs.blocking = false;
+            obs = cast(shared Socket) robs;
             connect2 = true;
         }
         catch(SocketException e)
@@ -140,7 +142,9 @@ void initEnvironment(Redis db)
     {
         try
         {
-            agent1 = cast(shared Socket)(new TcpSocket(new InternetAddress("127.0.0.1", 7003)));
+            auto ragent1 = (new TcpSocket(new InternetAddress("127.0.0.1", 7003)));
+            //ragent1.blocking = false;
+            agent1 = cast(shared Socket) ragent1;
             connect3 = true;
         }
         catch(SocketException e)
@@ -152,12 +156,15 @@ void initEnvironment(Redis db)
     string execLinkCommand = format("cmd:connect,buff:buff");
     Socket mExec = cast(Socket)exec;
     mExec.send(execLinkCommand);
-
     //wait for socks to be fully connected
     waitSignal(exFullyConnected);
 
-    waitSignal(agent1FullyConnected);
+    string agent1LinkCommand = format("cmd:connect,buff:buff");
+    Socket mAgent1 = cast(Socket)agent1;
+    mAgent1.send(agent1LinkCommand);
 
+    waitSignal(agent1FullyConnected);
+    
     writefln("Executor and Observer are online! \n");
 
     startupServers();
@@ -270,14 +277,11 @@ void generateTasks()
             //writefln("%s\n",task.toTCPString());
 
             mAgent1.send(cmd);
-            while(!agent1Get)
-            {
-
-            }
+            waitSignal(agent1Get);
             agent1Get = false;
         }
 
-        Thread.sleep(dur!("seconds")( 60)); //todo change this back to 5
+        Thread.sleep(dur!("seconds")( 120)); //todo play with this
 
         wlid += 1;
     }
@@ -332,10 +336,10 @@ void main(string[] args)
     assert(listener.isAlive);
     listener.blocking = false;
     listener.bind(new InternetAddress(port));
-    listener.listen(10);
+    listener.listen(1000);
     writefln("Listening on port %d.", port);
 
-    enum MAX_CONNECTIONS = 60;
+    enum MAX_CONNECTIONS = 600;
     // Room for listener.
     auto socketSet = new SocketSet(MAX_CONNECTIONS + 1);
     Socket[] reads;
@@ -343,45 +347,88 @@ void main(string[] args)
     auto redis = new Redis("localhost", 6379);
     while (true)
     {
+        //auto socketSet = new SocketSet(MAX_CONNECTIONS + 1);
+        writefln("orch here0 \n");
         socketSet.add(listener);
+        long sel;
 
         foreach (sock; reads)
             socketSet.add(sock);
 
-        Socket.select(socketSet, null, null);
+        try
+        {
+            sel = Socket.select(socketSet, null, null);
+        }
+        catch (SocketException e)
+        {
+            socketSet.reset();
+            continue;            
+        }
 
         for (size_t i = 0; i < reads.length; i++)
         {
+            writefln("Socket blocking %s \n",reads[i].blocking);
             if (socketSet.isSet(reads[i]))
             {
-                char[1024] buf;
-                auto datLength = reads[i].receive(buf[]);
+                //reads[i].blocking = false;
+                //writefln("orch here1 \n");
+                //writefln("orch reads: %s \n",reads.length);
+                //writefln("adress of current req socket: %s \n",reads[i].remoteAddress());
+                //writefln("sel was %s \n",sel);
+                char[4096] buf;
 
+                long datLength;
+                if(sel != -1)
+                {
+                     datLength = reads[i].receive(buf[]);
+                }
+                else
+                {
+                    buf = "cmd:blank,buff:buff";
+                    datLength = buf.length;
+                }
+                
+                //writefln("orch here1.5 \n");
                 if (datLength == Socket.ERROR)
                     writeln("Connection error.");
                 else if (datLength != 0)
                 {
-                    writefln("Received %d bytes from %s: \"%s\"", datLength, reads[i].remoteAddress().toString(), buf[0..datLength-1]);
-                    string[string] cmdVals = processInput(to!string(buf[0..datLength-1]));
+                    writefln("Received %d bytes from %s: \"%s\"", datLength, reads[i].remoteAddress().toString(), buf[0..datLength]);
+                    string[string] cmdVals = processInput(to!string(buf[0..datLength]));
                 
                     auto t = task!handleInput(cmdVals,redis);
                     t.executeInNewThread();
+                    //writefln("orch pass1 \n");
                     //t.workForce;
 
                     continue;
                 }
-
+                else
+                {
+                    try
+                    {
+                        // if the connection closed due to an error, remoteAddress() could fail
+                        writefln("Connection from %s closed.", reads[i].remoteAddress().toString());
+                    }
+                    catch (SocketException)
+                    {
+                        writeln("Connection closed.");
+                    }
+                }
                 // release socket resources now
                 reads[i].close();
 
                 reads = reads.remove(i);
                 // i will be incremented by the for, we don't want it to be.
                 i--;
+                //writefln("orch pass2 \n");
             }
+            //writefln("orch pass3 \n");
         }
 
         if (socketSet.isSet(listener))        // connection request
         {
+            writefln("orch here2 \n");
             Socket sn = null;
             scope (failure)
             {
@@ -391,22 +438,26 @@ void main(string[] args)
                 if (sn)
                     sn.close();*/
             }
+
             try
             {
                 sn = listener.accept();
             }
             catch(SocketException e)
             {
-                writefln("%s\n",e);
+                //writefln("%s\n",e);
                 continue;
             }
+
+            //sn = listener.accept();
+            
 
             assert(sn.isAlive);
             assert(listener.isAlive);
 
             if (reads.length < MAX_CONNECTIONS)
             {
-                writefln("Connection from %s established.", sn.remoteAddress().toString());
+                writefln("Orch : Connection from %s established.", sn.remoteAddress().toString());
                 reads ~= sn; //takes in new data
                 writefln("\tTotal connections: %d", reads.length);
             }

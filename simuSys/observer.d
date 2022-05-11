@@ -244,7 +244,7 @@ void main(string[] args)
     listener.listen(10);
     writefln("Listening on port %d.", port);
 
-    enum MAX_CONNECTIONS = 60;
+    enum MAX_CONNECTIONS = 120;
     // Room for listener.
     auto socketSet = new SocketSet(MAX_CONNECTIONS + 1);
     Socket[] reads;
@@ -263,7 +263,7 @@ void main(string[] args)
         {
             if (socketSet.isSet(reads[i]))
             {
-                char[1024] buf;
+                char[4096] buf;
                 auto datLength = reads[i].receive(buf[]);
 
                 if (datLength == Socket.ERROR)

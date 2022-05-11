@@ -1,14 +1,18 @@
-import socket
+import socket, select
 import threading
 import time
 import redis
 import random
+import json
 from signal import signal, SIGPIPE, SIG_DFL
 
 agentThyme = True
-cTaskSender = True
-global execGet
+#global execGet
 execGet = False
+
+#global Complete
+#global Deny
+#global Slow
 Complete = {}
 Deny = {}
 Slow = {}
@@ -31,13 +35,14 @@ Slow["D"] = - .001
 serverPassive = .0005 
 conPassive = .00005
 
-global prevCPUUsage
+#global prevCPUUsage
 prevCPUUsage = {}
-global prevMEMUsage
+#global prevMEMUsage
 prevMEMUsage = {}
 
-global lock
-lock = threading.Lock()
+#global lock
+execlock = threading.Lock()
+orchlock = threading.Lock()
 
 r = redis.Redis(
     host='localhost',
@@ -100,15 +105,24 @@ def processInput(dat):
     return cmdVals
 
 def calcReqProfit(taskDat):
+    global Complete
+    global Slow
+    global Deny
+
     profit = 0
     print("calculating profit for taskDat %s \n",taskDat)
 
     for req,obj in taskDat.items():
-        if(obj["rejected"] == 1):
+        print("agent1 req: %s\n" % req)
+        print("agent1 obj : %s\n" % obj)
+        if(obj["rejected"] == "1"):
+            print("agent1 reject calc")
             profit -= Deny[obj["type"]]
-        elif(obj["timeout"] == 1):
+        elif(obj["timeout"] == "1"):
+            print("agent1 reject calc")
             profit -= Slow[obj["type"]]
-        elif(obj["completed"] == 1):
+        elif(obj["completed"] == "1"):
+            print("agent1 reject calc")
             profit += Complete[obj["type"]]
 
     return profit
@@ -139,6 +153,9 @@ def getContainers(servs):
     return mServCons
 
 def getServerCost(servCons):
+    global serverPassive
+    global conPassive
+
     servCosts = {}
     for serv,conDict in servCons.items():
         servCosts[serv] = 0
@@ -172,6 +189,9 @@ def getEntityUtilization(servs,mtype):
     return utilizationRates
 
 def getEntityDemandChange(mtype):
+    global prevCPUUsage
+    global prevMEMUsage
+
     curTasks = getTaskData()
     servDemChance = {}
     servUsage = {}
@@ -259,6 +279,7 @@ def agentLearn():
         clearFinishedQueries()
 
 def agentTime():
+    global agentThyme
     while agentThyme:
         time.sleep(15)
         displayEnvState()
@@ -276,13 +297,21 @@ def dictToTcpString(cmdVals):
     return f"id:{mid},type:{mtype},timetocomplete:{ttc},region:{region},deps:{deps}"
 
 def handleInput(dat):
-    global lock
+    global execlock #how to access global var
+    global orchlock
+    global execGet
+    global orchSock
+    global execSock
 
     cmdVals = processInput(dat)
     if len(cmdVals) == 0:
         print("Empty cmdVals instance py\n")
     elif  cmdVals['cmd'] == "stask":
-        #get any tasks rejected
+        with orchlock:
+            print("orchsock send!\n")
+            orchSock.sendall(b'cmd:agent1Get,buff:buff\r\n')
+        print("orchsock done!\n")
+
         t = randomServConSelect()
         s = t[0]
         c = t[1]
@@ -291,53 +320,99 @@ def handleInput(dat):
         conType = conInfo['conType']
         
         taskString = dictToTcpString(cmdVals)
-        with lock:
+        with execlock:
             execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{s},con:{c},buff:buff".encode()) #problem is here, doesn't completely send
-        while not execGet:
-            pass
-        execGet = False
+            while not execGet:
+                pass
+            print("exiting while in agent1\n")
+            execGet = False
         #agentLearn()
     #print("%s\n",cmdVals)
+    elif  cmdVals['cmd'] == "connect":
+        with orchlock:
+            orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff\r\n')
     elif cmdVals['cmd'] == "execget":
+        print("set exec get to true!!!\n")
         execGet = True
     
-
-#todo idea: make agent time happen everytime 
-HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
-PORT = 7003  # Port to listen on (non-privileged ports are > 1023)
-signal(SIGPIPE,SIG_DFL)  # you need this for the piping nonsense
-
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.bind((HOST, PORT))
-    s.listen()
-
-    orchSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    orchSock.connect(('localhost', 7002))
-    obsSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    obsSock.connect(('localhost', 7001))
-    execSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    execSock.connect(('localhost', 7000))
-
-    orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff')
+#server obtained from https://gist.github.com/logasja/97bddeb84879b30519efb0c66b4db159
+def runServer():
+    CONNECTION_LIST = []    # list of socket clients
+    RECV_BUFFER = 4096 # Advisable to keep it as an exponent of 2
+    PORT = 7003
+    #signal(SIGPIPE,SIG_DFL)  # you need this for the piping nonsense
+         
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # this has no effect, why ?
+    #server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind(("0.0.0.0", PORT))
+    server_socket.listen(10)
+ 
+    # Add server socket to the list of readable connections
+    CONNECTION_LIST.append(server_socket)
 
     t1 = threading.Thread(target=agentTime,args=())
     t1.start()
-
-    conn, addr = s.accept()
-    with conn:
-        print(f"Connected by {addr}")
-        while True:
-            data = conn.recv(4096)
-            if not data:
-                break
+ 
+    print("agent1 active on port " + str(PORT) + "\n")
+ 
+    while 1:
+        # Get the list sockets which are ready to be read through select
+        read_sockets,write_sockets,error_sockets = select.select(CONNECTION_LIST,[],[])
+ 
+        for sock in read_sockets:
+             
+            #New connection
+            if sock == server_socket:
+                # Handle the case in which there is a new connection recieved through server_socket
+                sockfd, addr = server_socket.accept()
+                CONNECTION_LIST.append(sockfd)
+                print("Client (%s, %s) connected" % addr)
+                 
+            #Some incoming message from a client
             else:
-                strDat = data.decode("utf-8")
-                print("%s\n",strDat)
-                batches = strDat.split(",buff:buff")
-                #get any tasks rejected
-                for batch in batches:
-                    tRep = threading.Thread(target=handleInput,args=(batch,)) #appearently the extra comma should fix the issue, try it out
-                    tRep.start()
-                    #handleInput(batch)
-                orchSock.sendall(b'cmd:agent1Get,buff:buff')
-            #conn.sendall(data)
+                # Data recieved from client, process it
+                try:
+                    #In Windows, sometimes when a TCP program closes abruptly,
+                    # a "Connection reset by peer" exception will be thrown
+                    data = sock.recv(RECV_BUFFER)
+                    strDat = data.decode("utf-8")
+                    print("agent1 dat : %s\n",strDat)
+                    batches = strDat.split(",buff:buff")
+                    #get any tasks rejected
+                    for batch in batches:
+                        tRep = threading.Thread(target=handleInput,args=(batch,)) #appearently the extra comma should fix the issue, try it out
+                        tRep.start()
+                        #handleInput(batch)
+                    #orchSock.sendall(b'cmd:agent1Get,buff:buff')
+                 
+                # client disconnected, so remove from socket list
+                except:
+                    broadcast_data(sock, "Client (%s, %s) is offline" % addr)
+                    print("Client (%s, %s) is offline" % addr)
+                    sock.close()
+                    CONNECTION_LIST.remove(sock)
+                    continue
+         
+    server_socket.close()
+
+
+#todo idea: make agent time happen everytime 
+#HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
+#PORT = 7003  # Port to listen on (non-privileged ports are > 1023)
+
+print("agent1 to orch!\n")
+orchSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+orchSock.connect(('localhost', 7002))
+orchSock.setblocking(0)
+obsSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+obsSock.connect(('localhost', 7001))
+obsSock.setblocking(0)
+execSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+execSock.connect(('localhost', 7000))
+execSock.setblocking(0)
+#orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff')
+
+mt = threading.Thread(target=runServer,args=())
+mt.start()
+#runServer()
