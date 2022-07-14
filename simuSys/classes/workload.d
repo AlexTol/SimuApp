@@ -78,6 +78,7 @@ class Workload
     void generateTasks(int wlid,int primaryTasks,string region)
     {
         this.region = region;
+        int depIndex = primaryTasks;
 
         for(int i = 0; i < primaryTasks; i++)
         {
@@ -96,9 +97,10 @@ class Workload
                 {
                     string dtype = this.generateType();
                     float dthyme = generateTaskTime(dtype);
-                    Mtask dt = new Mtask(wlid,(y + primaryTasks - 1),dtype,dthyme,region);
+                    Mtask dt = new Mtask(wlid,(depIndex),dtype,dthyme,region);
                     dt.addDependency(i);
                     this.tasks ~= dt;
+                    depIndex += 1;
                 }
             }
         }

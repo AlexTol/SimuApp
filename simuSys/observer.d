@@ -1,3 +1,4 @@
+import std.file;
 import std.string;
 import std.process;
 import std.algorithm : remove;
@@ -134,21 +135,21 @@ void handleInput(string[string] cmdVals,Redis db)
             availableCPU = to!int(cpuV) - to!int(cmdVals["conCPU"]);
         }
 
-        int availableMEM = 0;
+        float availableMEM = 0;
         string servMEMQuery = format("HMGET %s availableMEM",
         cmdVals["servName"]);
         Response memRes = db.send(servMEMQuery);
         foreach(memK,memV; memRes.values)
         {
-            availableMEM  = to!int(memV) - to!int(cmdVals["conMEM"]);
+            availableMEM  = to!float(to!string(memV)) - to!float(cmdVals["conMEM"]);
         }
 
         string serverEditQuery = format("HMSET %s availableCPU %s availableMEM %s",
             cmdVals["servName"],availableCPU,availableMEM);
         db.send(serverEditQuery);
 
-        string query = format("HMSET %s conPort \"%s\" conType \"%s\" servName \"%s\" servPort \"%s\"",
-            cmdVals["conName"],cmdVals["conPort"],cmdVals["conType"],cmdVals["servName"],cmdVals["servPort"]);
+        string query = format("HMSET %s conPort \"%s\" conType \"%s\" servName \"%s\" servPort \"%s\" conCPU \"%s\" conMEM \"%s\"",
+            cmdVals["conName"],cmdVals["conPort"],cmdVals["conType"],cmdVals["servName"],cmdVals["servPort"],cmdVals["conCPU"],cmdVals["conMEM"]);
 
         db.send(query);
 
@@ -186,13 +187,13 @@ void handleInput(string[string] cmdVals,Redis db)
             availableCPU = to!int(cpuV) + to!int(cmdVals["conCPU"]);
         }
 
-        int availableMEM = 0;
+        float availableMEM = 0;
         string servMEMQuery = format("HMGET %s availableMEM",
         cmdVals["servName"]);
         Response memRes = db.send(servMEMQuery);
         foreach(memK,memV; memRes.values)
         {
-            availableMEM  = to!int(memV) + to!int(cmdVals["conMEM"]);
+            availableMEM  = to!float(to!string(memV)) + to!float(cmdVals["conMEM"]);
         }
 
         string serverEditQuery = format("HMSET %s availableCPU %s availableMEM %s",

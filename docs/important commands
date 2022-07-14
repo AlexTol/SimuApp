@@ -18,7 +18,8 @@ ssh -o StrictHostKeyChecking=no 0.0.0.0 -p 9001
 //build with dub
 dub build --config=observer
 
-
+//calling netcat
+netcat localhost <PORT>
 //netcat commands
 cmd:connectObs,buff:buff
 cmd:createVM,servName:s1,servPort:8000,servCPU:4,servMEM:4,region:NA,buff:buff

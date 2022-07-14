@@ -2,6 +2,7 @@
 
 import std.string;
 import std.range;
+import std.file;
 import std.process;
 import std.algorithm.searching;
 import std.algorithm : remove;
@@ -356,8 +357,13 @@ void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,str
     writefln("time elapsed %s\n",elap);
     string data = format("type:reqStatus,tid:%s,tType:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
     t.id,t.type,t.region,complete,elap,timeout,rejected,cmdVals["server"],cmdVals["con"],cpu,mem);
+    
+    string result = (timeout == 1) ? "TIMEOUT" : "COMPLETE!";
+    
     synchronized 
     {
+        string log = format("result:%s,%s\n",result,data);
+        append("simuSysLog/executorFinishedTasks.txt", log);
         obsSock.send(data);
     }
 }
@@ -522,6 +528,9 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
             cmdVals["id"],cmdVals["type"],cmdVals["region"],"0","0","0",1,cmdVals["server"],cmdVals["con"],0,0);
             synchronized 
             {
+                string log = format("result:WRONG,tid:%s,tType:%s,conType:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,server:%s,con:%s,tCPU:%s,tMEM:%s\n",
+                cmdVals["id"],cmdVals["type"],cmdVals["contype"],cmdVals["region"],"0","0","0",1,cmdVals["server"],cmdVals["con"],0,0);
+                append("simuSysLog/executorFinishedTasks.txt", log);
                 socks["obs"].send(data);
             }
             return;

@@ -5,6 +5,8 @@ import redis
 import random
 import json
 from signal import signal, SIGPIPE, SIG_DFL
+from models.dqn import DQNAgent
+import numpy as np
 
 agentThyme = True
 #global execGet
@@ -55,6 +57,26 @@ def decodeObj(obj):
 
     return dObj
 
+def correctConSelect(chosenServ,state):
+    #get the server
+    #choose a con with the correct type, type can be extrapolated from state
+    rType = "D"
+    if(state[0] == 1):
+        rType = "A"
+    elif(state[1] == 1):
+        rType = "B"
+    elif(state[2] == 1):
+        rType = "C"
+
+    choices = []
+
+    cons = getContainers({chosenServ:0})
+    for con,ConObj in cons.items():
+        if(conObj['conType'] == rType):
+            choices.append(con)
+
+    return random.choice(choices)
+
 def randomServConSelect():
     servs = []
     tup = []
@@ -93,7 +115,6 @@ def randomConSelect(ser):
     containers = r.smembers(f"{ser}_containers")
     return random.choice(tuple(containers)).decode("utf-8")
 
-#todo sent commands to executor,
 def processInput(dat):
     cmdVals = {}
     tuples = dat.split(",")
@@ -139,6 +160,25 @@ def getServers():
 
     return servs;
 
+def getServerInfo(serverDict):
+    info = {}
+    cons = getContainers(serverDict)
+
+    info['totalCPUUtil'] = getEntityUtilization(serverDict,"CPU")
+    info['totalCPUUtilA'] = getEntityServerUtilizationType(cons,"A","CPU")
+    info['totalCPUUtilB'] = getEntityServerUtilizationType(cons,"B","CPU")
+    info['totalCPUUtilC'] = getEntityServerUtilizationType(cons,"C","CPU")
+    info['totalCPUUtilD'] = getEntityServerUtilizationType(cons,"D","CPU")
+    
+    info['totalMEMUtil'] = getEntityUtilization(serverDict,"CPU")
+    info['totalMEMUtilA'] = getEntityServerUtilizationType(cons,"A","MEM")
+    info['totalMEMUtilB'] = getEntityServerUtilizationType(cons,"B","MEM")
+    info['totalMEMUtilC'] = getEntityServerUtilizationType(cons,"C","MEM")
+    info['totalMEMUtilD'] = getEntityServerUtilizationType(cons,"D","MEM")
+
+    return info
+    
+
 def getContainers(servs):
     mServCons = {}
     for serv,servObj in servs.items():
@@ -166,7 +206,24 @@ def getServerCost(servCons):
 
     return servCosts
 
-#type = CPU or MEM
+#rtype = resource type (A,B,C,D)
+def getEntityServerUtilizationType(cons,rtype,mtype):
+    utilizationRate = 0
+    typeResource = 0
+
+    for con,conObj in cons.items():
+        if(conObj["conType"] == rtype):
+            typeResource += conObj[f"con{mtype}"]
+
+    curTasks = getTaskData()
+    conUsage = 0
+    for t,tObj in curTasks.items():
+        if(tObj["con"] in cons.keys()):
+            con += float(tObj[f"t{mtype}"])
+
+    return conUsage/typeResource
+
+#mtype = CPU or MEM
 def getEntityUtilization(servs,mtype):
     utilizationRates = {}
     servResource = {}
@@ -232,6 +289,58 @@ def getTaskData():
 
     return taskDat
     
+def typeToArrRep(mtype):
+    if mtype == "A":
+        return [1,0,0,0]
+    elif mtype == "B":
+        return [0,1,0,0]
+    elif mtype == "C":
+        return [0,0,1,0]
+    else:
+        return [0,0,0,1]
+
+def regionToArrRep(region):
+    if region == "NA":
+        return [1,0,0,0,0,0]
+    elif region == "SA":
+        return [0,1,0,0,0,0]
+    elif region == "EU":
+        return [0,0,1,0,0,0]
+    elif region == "AS":
+        return [0,0,0,1,0,0]
+    elif region == "AF":
+        return [0,0,0,0,1,0]
+    else:
+        return [0,0,0,0,0,1]
+
+def getServerSenderInfo(state,cmdVals):
+    index = 0
+    tcpu = 1
+    tmem = .5 if (cmdVals['type'] == "A") else 1
+
+    typeArr = typeToArrRep(cmdVals['type'])
+    for rep in typeArr:
+        state[index] = rep
+        index += 1
+
+    state[index] = tcpu
+    index += 1
+    state[index] = tmem
+    index += 1
+
+    regionArr = regionToArrRep(cmdVals['region'])
+    for rep in typeArr:
+        state[index] = rep
+        index += 1
+
+    servs = getServers()
+    for serv,servObj in servs.items():
+        servInfo = getServerInfo({serv:servObj})
+        for key,val in servInfo.items():
+            state[index] = val
+            index += 1
+
+
 def displayEnvState():
     taskData = getTaskData()
     profit = calcReqProfit(taskData)
@@ -285,7 +394,26 @@ def agentTime():
         displayEnvState()
         clearFinishedQueries()
 
+def reward1():
+    reward = 0
+    #add up all the utilization rates
+    servs = getServers()
+    for serv,servObj in servs.items():
+        servInfo = getServerInfo({serv:servObj})
+        for key,val in servInfo.items():
+            reward += float(val)
 
+    #add profit plus costs
+    taskData = getTaskData()
+    profit = calcReqProfit(taskData)
+    serverCosts = getServerCost(servCons)
+
+    reward += float(profit)
+    reward -= float(serverCosts)
+
+    return reward
+
+    
 
 def dictToTcpString(cmdVals):
     mid = cmdVals['id']
@@ -312,9 +440,15 @@ def handleInput(dat):
             orchSock.sendall(b'cmd:agent1Get,buff:buff\r\n')
         print("orchsock done!\n")
 
-        t = randomServConSelect()
-        s = t[0]
-        c = t[1]
+        ##deep learning stuff here
+        s = taskAgent.act(taskAgentState)
+        print(f"taskAction (server choice): {s}")
+        c = correctConSelect(s,taskAgentState)
+        print(f"container choice: {c}")
+
+        #t = randomServConSelect()
+        #s = t[0]
+        #c = t[1]
         conInfo = decodeObj(r.hgetall(f"{c}"))
         conPort = conInfo['conPort']
         conType = conInfo['conType']
@@ -326,6 +460,17 @@ def handleInput(dat):
                 pass
             print("exiting while in agent1\n")
             execGet = False
+        
+        prevState = taskAgentState
+        time.sleep(1)
+        getServerSenderInfo(taskAgentState,cmdVals) # sets taskAgentState by reference
+        reward = reward1()
+        taskAgent.remember(prevState,s,reward,taskAgentState,false)
+        episodes += 1
+        if episodes == 32
+            episodes = 0
+            taskAgent.replay(32)
+
         #agentLearn()
     #print("%s\n",cmdVals)
     elif  cmdVals['cmd'] == "connect":
@@ -412,6 +557,15 @@ execSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 execSock.connect(('localhost', 7000))
 execSock.setblocking(0)
 #orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff')
+#todo figure out dimension of server and task inputs
+#Task_dims + (num_servers * server_dims)
+taskAgentStateSize = 12 + (30 * 16)
+taskAgentActionSize = 30
+taskAgentState = np.zeroes(taskAgentStateSize)
+getServerSenderInfo(taskAgentState,cmdVals)
+episodes = 0
+taskAgent = DQNAgent(taskAgentStateSize,taskAgentActionSize)
+
 
 mt = threading.Thread(target=runServer,args=())
 mt.start()
