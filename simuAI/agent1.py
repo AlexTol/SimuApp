@@ -70,11 +70,13 @@ def correctConSelect(chosenServ,state):
 
     choices = []
 
-    cons = getContainers({chosenServ:0})
-    for con,ConObj in cons.items():
+    cons = getContainers({"s" + str(chosenServ):0})["s" + str(chosenServ)]
+    for con,conObj in cons.items():
         if(conObj['conType'] == rType):
             choices.append(con)
 
+    if(not choices):
+        return 0
     return random.choice(choices)
 
 def randomServConSelect():
@@ -119,7 +121,6 @@ def processInput(dat):
     cmdVals = {}
     tuples = dat.split(",")
     for tup in tuples:
-        print("%s\n",tup)
         if tup != "" and tup != "\n":
             token = tup.split(":")
             cmdVals[token[0]] = token[1]
@@ -131,19 +132,19 @@ def calcReqProfit(taskDat):
     global Deny
 
     profit = 0
-    print("calculating profit for taskDat %s \n",taskDat)
+    #print("calculating profit for taskDat %s \n",taskDat)
 
     for req,obj in taskDat.items():
-        print("agent1 req: %s\n" % req)
-        print("agent1 obj : %s\n" % obj)
+     #   print("agent1 req: %s\n" % req)
+      #  print("agent1 obj : %s\n" % obj)
         if(obj["rejected"] == "1"):
-            print("agent1 reject calc")
+       #     print("agent1 reject calc")
             profit -= Deny[obj["type"]]
         elif(obj["timeout"] == "1"):
-            print("agent1 reject calc")
+         #   print("agent1 reject calc")
             profit -= Slow[obj["type"]]
         elif(obj["completed"] == "1"):
-            print("agent1 reject calc")
+        #    print("agent1 reject calc")
             profit += Complete[obj["type"]]
 
     return profit
@@ -162,20 +163,30 @@ def getServers():
 
 def getServerInfo(serverDict):
     info = {}
-    cons = getContainers(serverDict)
+    key = list(serverDict.keys())[0]
+    cons = getContainers(serverDict)[key]
+    #print(cons)
 
-    info['totalCPUUtil'] = getEntityUtilization(serverDict,"CPU")
+    info['totalCPUUtil'] = 0.0
+    cpuUtil = getEntityUtilization(serverDict,"CPU")
+    for serv,util in cpuUtil.keys():
+        info['totalCPUUtil'] += float(util)
     info['totalCPUUtilA'] = getEntityServerUtilizationType(cons,"A","CPU")
     info['totalCPUUtilB'] = getEntityServerUtilizationType(cons,"B","CPU")
     info['totalCPUUtilC'] = getEntityServerUtilizationType(cons,"C","CPU")
     info['totalCPUUtilD'] = getEntityServerUtilizationType(cons,"D","CPU")
     
-    info['totalMEMUtil'] = getEntityUtilization(serverDict,"CPU")
+    info['totalMEMUtil'] = 0.0
+    memUtil = getEntityUtilization(serverDict,"MEM")
+    for serv,util in memUtil.keys():
+        info['totalMEMUtil'] += float(util)
     info['totalMEMUtilA'] = getEntityServerUtilizationType(cons,"A","MEM")
     info['totalMEMUtilB'] = getEntityServerUtilizationType(cons,"B","MEM")
     info['totalMEMUtilC'] = getEntityServerUtilizationType(cons,"C","MEM")
     info['totalMEMUtilD'] = getEntityServerUtilizationType(cons,"D","MEM")
 
+    #print("info")
+    #print(info)
     return info
     
 
@@ -213,13 +224,15 @@ def getEntityServerUtilizationType(cons,rtype,mtype):
 
     for con,conObj in cons.items():
         if(conObj["conType"] == rtype):
-            typeResource += conObj[f"con{mtype}"]
+            typeResource += float(conObj[f"con{mtype}"])
 
     curTasks = getTaskData()
+    #print("curTasks")
+    #print(curTasks)
     conUsage = 0
     for t,tObj in curTasks.items():
         if(tObj["con"] in cons.keys()):
-            con += float(tObj[f"t{mtype}"])
+            conUsage += float(tObj[f"t{mtype}"])
 
     return conUsage/typeResource
 
@@ -229,16 +242,16 @@ def getEntityUtilization(servs,mtype):
     servResource = {}
 
     for serv,servObj in servs.items():
-        print(servObj)
         servResource[serv] = float(servObj[f"serv{mtype}"]) #also servMEM
 
     curTasks = getTaskData()
     servUsage = {}
     for t,tObj in curTasks.items():
-        if(tObj["server"] in servUsage.keys()):
-            servUsage[tObj["server"]] += float(tObj[f"t{mtype}"])
-        else:
-            servUsage[tObj["server"]] = float(tObj[f"t{mtype}"])
+        if(tObj["server"] in servs.keys()):
+            if(tObj["server"] in servUsage.keys()):
+                servUsage[tObj["server"]] += float(tObj[f"t{mtype}"])
+            else:
+                servUsage[tObj["server"]] = float(tObj[f"t{mtype}"])
 
     for serv,usage in servUsage.items():
         utilizationRates[serv] = float(usage)/float(servResource[serv])
@@ -335,7 +348,9 @@ def getServerSenderInfo(state,cmdVals):
 
     servs = getServers()
     for serv,servObj in servs.items():
-        servInfo = getServerInfo({serv:servObj})
+        sO = {}
+        sO[serv] = servObj
+        servInfo = getServerInfo(sO)
         for key,val in servInfo.items():
             state[index] = val
             index += 1
@@ -382,7 +397,6 @@ def clearFinishedQueries():
             r.delete(req)
             r.srem("currentRequests",req)
 
-
 def agentLearn():
         displayEnvState()
         clearFinishedQueries()
@@ -394,26 +408,44 @@ def agentTime():
         displayEnvState()
         clearFinishedQueries()
 
-def reward1():
+def reward1(secondPassed):
     reward = 0
     #add up all the utilization rates
     servs = getServers()
+    utilAverages = []
     for serv,servObj in servs.items():
         servInfo = getServerInfo({serv:servObj})
+        numerator = 0
         for key,val in servInfo.items():
-            reward += float(val)
+            numerator += float(val)
+        utilAverages.append(numerator/5)
+
+    utilAverage = 0
+    for ave in utilAverages:
+        utilAverage += ave
+
+    if(len(utilAverages) > 0):
+        utilAverage = utilAverage/len(utilAverages)
 
     #add profit plus costs
+    servCons = getContainers(servs)
     taskData = getTaskData()
     profit = calcReqProfit(taskData)
-    serverCosts = getServerCost(servCons)
+    #only calculate the cost everysecond
+    serverCosts = getServerCost(servCons)  if(secondPassed) else 0
 
     reward += float(profit)
-    reward -= float(serverCosts)
+    if(serverCosts != 0):
+        for serv,cost in serverCosts.items():
+            reward -= cost
 
-    return reward
+    clearFinishedQueries()
 
-    
+    if(reward <= 0):
+        return reward
+    else:
+        return (utilAverage * reward)
+
 
 def dictToTcpString(cmdVals):
     mid = cmdVals['id']
@@ -430,6 +462,9 @@ def handleInput(dat):
     global execGet
     global orchSock
     global execSock
+    global taskAgent
+    global episodes
+    global curTime
 
     cmdVals = processInput(dat)
     if len(cmdVals) == 0:
@@ -441,7 +476,12 @@ def handleInput(dat):
         print("orchsock done!\n")
 
         ##deep learning stuff here
+        if('taskAgentState' not in locals()):
+            taskAgentState = np.zeros(taskAgentStateSize)
+            getServerSenderInfo(taskAgentState,cmdVals)
+        
         s = taskAgent.act(taskAgentState)
+        s += 1 #avoid choosing server = 0
         print(f"taskAction (server choice): {s}")
         c = correctConSelect(s,taskAgentState)
         print(f"container choice: {c}")
@@ -450,27 +490,38 @@ def handleInput(dat):
         #s = t[0]
         #c = t[1]
         conInfo = decodeObj(r.hgetall(f"{c}"))
-        conPort = conInfo['conPort']
-        conType = conInfo['conType']
+        conPort = 0
+        conType = "NA"
+        if(conInfo):
+            conPort = conInfo['conPort']
+            conType = conInfo['conType']
         
         taskString = dictToTcpString(cmdVals)
         with execlock:
+            print(f"AGENT 1: cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{s},con:{c},buff:buff")
             execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{s},con:{c},buff:buff".encode()) #problem is here, doesn't completely send
             while not execGet:
                 pass
-            print("exiting while in agent1\n")
+            #print("exiting while in agent1\n")
             execGet = False
-        
-        prevState = taskAgentState
-        time.sleep(1)
-        getServerSenderInfo(taskAgentState,cmdVals) # sets taskAgentState by reference
-        reward = reward1()
-        taskAgent.remember(prevState,s,reward,taskAgentState,false)
-        episodes += 1
-        if episodes == 32
-            episodes = 0
-            taskAgent.replay(32)
 
+            prevState = taskAgentState
+            time.sleep(1)
+            getServerSenderInfo(taskAgentState,cmdVals) # sets taskAgentState by reference
+
+            if(minute_passed(curTime)):
+                curTime = time.time()
+                reward = reward1(True)
+            else:
+                reward = reward1(False)
+
+            taskAgent.remember(prevState,s,reward,taskAgentState,False)
+            episodes += 1
+            if episodes == 32:
+                episodes = 0
+                taskAgent.replay(32)
+
+        #clearFinishedQueries()
         #agentLearn()
     #print("%s\n",cmdVals)
     elif  cmdVals['cmd'] == "connect":
@@ -480,6 +531,10 @@ def handleInput(dat):
         print("set exec get to true!!!\n")
         execGet = True
     
+def minute_passed(prevTime):
+    return time.time() - prevTime >= 60
+
+
 #server obtained from https://gist.github.com/logasja/97bddeb84879b30519efb0c66b4db159
 def runServer():
     CONNECTION_LIST = []    # list of socket clients
@@ -496,8 +551,8 @@ def runServer():
     # Add server socket to the list of readable connections
     CONNECTION_LIST.append(server_socket)
 
-    t1 = threading.Thread(target=agentTime,args=())
-    t1.start()
+    #t1 = threading.Thread(target=agentTime,args=())
+    #t1.start()
  
     print("agent1 active on port " + str(PORT) + "\n")
  
@@ -522,7 +577,7 @@ def runServer():
                     # a "Connection reset by peer" exception will be thrown
                     data = sock.recv(RECV_BUFFER)
                     strDat = data.decode("utf-8")
-                    print("agent1 dat : %s\n",strDat)
+                    #print("agent1 dat : %s\n",strDat)
                     batches = strDat.split(",buff:buff")
                     #get any tasks rejected
                     for batch in batches:
@@ -556,15 +611,17 @@ obsSock.setblocking(0)
 execSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 execSock.connect(('localhost', 7000))
 execSock.setblocking(0)
+
+curTime = time.time()
 #orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff')
 #todo figure out dimension of server and task inputs
 #Task_dims + (num_servers * server_dims)
 taskAgentStateSize = 12 + (30 * 16)
 taskAgentActionSize = 30
-taskAgentState = np.zeroes(taskAgentStateSize)
-getServerSenderInfo(taskAgentState,cmdVals)
+taskAgentState = np.zeros(taskAgentStateSize)
+
 episodes = 0
-taskAgent = DQNAgent(taskAgentStateSize,taskAgentActionSize)
+taskAgent = DQNAgent(taskAgentStateSize,taskAgentActionSize,"./AILOGS/t1_loss.txt")
 
 
 mt = threading.Thread(target=runServer,args=())

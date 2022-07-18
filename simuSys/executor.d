@@ -165,7 +165,7 @@ void shutDownContainer(Redis db,Socket obsSock,string servName,int servPort,stri
 
 void spinUpServer(Socket obsSock,string servName,int servPort,int CPU,float MEM,string region)
 {
-    writefln("here!!!2\n");
+    //writefln("here!!!2\n");
     bool noError = true;
     string cmd1 = format("vboxmanage clonevm serverImage --name=%s --snapshot=serverImageSnap --register --options=Link",servName);
     auto res1 = executeShell(cmd1);
@@ -515,10 +515,45 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
     }
     else if(cmdVals["cmd"] == "sendReq")
     {
+        writefln("Execturor processign REQ!");
         synchronized 
         {
             socks["agent1"].send("cmd:execget,buff:buff");
             writefln("sent to agent1!!!!!\n");
+        }
+
+        string servsQ = format("HGETALL s%s",cmdVals["server"]);
+        Response servRes = db.send(servsQ);
+        if(empty(servRes))
+        {
+            writefln("server doesn't exist!");
+            string data = format("type:reqStatus,tid:%s,tType:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
+            cmdVals["id"],cmdVals["type"],cmdVals["region"],"0","0","0",1,cmdVals["server"],cmdVals["con"],0,0);
+            synchronized 
+            {
+                string log = format("result:SERV_NOT_EXIST,tid:%s,tType:%s,conType:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,server:%s,con:%s,tCPU:%s,tMEM:%s\n",
+                cmdVals["id"],cmdVals["type"],cmdVals["contype"],cmdVals["region"],"0","0","0",1,cmdVals["server"],cmdVals["con"],0,0);
+                append("simuSysLog/executorFinishedTasks.txt", log);
+                socks["obs"].send(data);
+            }
+            return;
+        }
+
+        string consQ = format("HGETALL %s",cmdVals["con"]);
+        Response conRes = db.send(consQ);
+        if(empty(conRes))
+        {
+            writefln("container doesn't exist!");
+            string data = format("type:reqStatus,tid:%s,tType:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,server:%s,con:%s,tCPU:%s,tMEM:%s,buff:buff",
+            cmdVals["id"],cmdVals["type"],cmdVals["region"],"0","0","0",1,cmdVals["server"],cmdVals["con"],0,0);
+            synchronized 
+            {
+                string log = format("result:CON_NOT_EXIST,tid:%s,tType:%s,conType:%s,region:%s,completed:%s,elapsed:%s,timeout:%s,rejected:%s,server:%s,con:%s,tCPU:%s,tMEM:%s\n",
+                cmdVals["id"],cmdVals["type"],cmdVals["contype"],cmdVals["region"],"0","0","0",1,cmdVals["server"],cmdVals["con"],0,0);
+                append("simuSysLog/executorFinishedTasks.txt", log);
+                socks["obs"].send(data);
+            }
+            return;
         }
 
         if(cmdVals["type"] != cmdVals["contype"])
@@ -568,18 +603,40 @@ void main(string[] args)
     while (true)
     {
         socketSet.add(listener);
+        long sel;
 
         foreach (sock; reads)
             socketSet.add(sock);
 
         Socket.select(socketSet, null, null);
 
+        try
+        {
+            sel = Socket.select(socketSet, null, null);
+        }
+        catch (SocketException e)
+        {
+            socketSet.reset();
+            continue;            
+        }
+
         for (size_t i = 0; i < reads.length; i++)
         {
             if (socketSet.isSet(reads[i]))
             {
                 char[4096] buf;
-                auto datLength = reads[i].receive(buf[]);
+                
+                long datLength;
+                if(sel != -1)
+                {
+                     datLength = reads[i].receive(buf[]);
+                }
+                else
+                {
+                    buf = "cmd:blank,buff:buff";
+                    datLength = buf.length;
+                }
+
 
                 if (datLength == Socket.ERROR)
                     writeln("Connection error.");

@@ -348,7 +348,7 @@ void main(string[] args)
     while (true)
     {
         //auto socketSet = new SocketSet(MAX_CONNECTIONS + 1);
-        writefln("orch here0 \n");
+        //writefln("orch here0 \n");
         socketSet.add(listener);
         long sel;
 
@@ -428,7 +428,7 @@ void main(string[] args)
 
         if (socketSet.isSet(listener))        // connection request
         {
-            writefln("orch here2 \n");
+            //writefln("orch here2 \n");
             Socket sn = null;
             scope (failure)
             {

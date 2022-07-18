@@ -1,12 +1,15 @@
+import random
 import torch as T
 import torch.nn as nn
 import torch.nn.functional as F 
 import torch.optim as optim
 import numpy as np
+from collections import deque 
 
 #define agent Credit for basic format to LiveLessons : https://www.youtube.com/watch?v=OYhFoMySoVs&t=3170s
-class DQNAgent:
-    def __init__(self,state_size,action_size):
+class DQNAgent(nn.Module):
+    def __init__(self,state_size,action_size,logFile=False):
+        super(DQNAgent, self).__init__()
         self.state_size = state_size
         self.action_size = action_size
 
@@ -34,7 +37,7 @@ class DQNAgent:
         self.memory.append((state,action,reward,next_state,done))
 
     def forward(self, state):
-        x = F.relu(self.layer1(state))
+        x = F.relu(self.layer1(T.from_numpy(state)))
         x = F.relu(self.layer2(x))
         actions = self.layer3(x)
 
@@ -61,6 +64,11 @@ class DQNAgent:
             loss = self.loss(target,target_f)  #calculate loss and fit the model
             loss.backward()
             self.optimizer().step()
+
+            if(logFile):
+                f = open(logFile,"a")
+                f.write(loss.item())
+                f.close()
 
         if self.epsilon > self.epsilon_min:
             self.epsilon = self.epsilon * self.epsilon_decay
