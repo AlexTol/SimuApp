@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 from collections import deque 
+import os
 
 #define agent Credit for basic format to LiveLessons : https://www.youtube.com/watch?v=OYhFoMySoVs&t=3170s
 class DQNAgent(nn.Module):
@@ -27,6 +28,8 @@ class DQNAgent(nn.Module):
         self.layer2 = nn.Linear(self.state_size, self.state_size)
         self.layer3 = nn.Linear(self.state_size, self.action_size)
 
+        self.logfile = logFile
+
         self.optimizer = optim.Adam(self.parameters(), lr=self.learning_rate)
         self.loss = nn.MSELoss()
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
@@ -37,7 +40,7 @@ class DQNAgent(nn.Module):
         self.memory.append((state,action,reward,next_state,done))
 
     def forward(self, state):
-        x = F.relu(self.layer1(T.from_numpy(state)))
+        x = F.relu(self.layer1(T.from_numpy(state).float()))
         x = F.relu(self.layer2(x))
         actions = self.layer3(x)
 
@@ -53,21 +56,22 @@ class DQNAgent(nn.Module):
         minibatch = random.sample(self.memory,batch_size) #randomly sample memories
 
         for state,action,reward,next_state,done in minibatch:
-            target = reward 
-            if not done:
-                target = (reward + (self.gamma * np.amax(self.forward(next_state)[0]))) #predict max future reward
-            target_f = self.forward(state) #estimate reward given current state
-            #map max future reward to current reward, basically saying...
-            #we know that action a taken at state s, will give you the best possible next_state s+1...
-            target_f[0][action] = target
-            #This models the Q* function, this is our Q* approximation...
-            loss = self.loss(target,target_f)  #calculate loss and fit the model
+            q_eval = self.forward(state)[action]
+            q_next = self.forward(next_state)
+            q_target = reward + (self.gamma * T.max(q_next, dim=0)[0])
+            
+            
+            loss = self.loss(q_target, q_eval)  #calculate loss and fit the model
             loss.backward()
-            self.optimizer().step()
+            self.optimizer.step()
 
-            if(logFile):
-                f = open(logFile,"a")
-                f.write(loss.item())
+            if(self.logfile):
+                #print("log path!")
+                #print(os.path.join(__location__, logFile))
+                #print("loss!")
+                #print(loss.item())
+                f = open(self.logfile,"a")
+                f.write(str(loss.item())+"\n")
                 f.close()
 
         if self.epsilon > self.epsilon_min:

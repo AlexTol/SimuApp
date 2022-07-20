@@ -7,6 +7,7 @@ import json
 from signal import signal, SIGPIPE, SIG_DFL
 from models.dqn import DQNAgent
 import numpy as np
+import os
 
 agentThyme = True
 #global execGet
@@ -230,9 +231,18 @@ def getEntityServerUtilizationType(cons,rtype,mtype):
     #print("curTasks")
     #print(curTasks)
     conUsage = 0
-    for t,tObj in curTasks.items():
-        if(tObj["con"] in cons.keys()):
-            conUsage += float(tObj[f"t{mtype}"])
+
+    if(not curTasks):
+        return 0.0
+
+    try:
+        for t,tObj in curTasks.items():
+            if(tObj["con"] in cons.keys()):
+                conUsage += float(tObj[f"t{mtype}"])
+    except:
+        print("something went wrong here")
+        print(curTasks)
+        return 0.0
 
     return conUsage/typeResource
 
@@ -246,12 +256,14 @@ def getEntityUtilization(servs,mtype):
 
     curTasks = getTaskData()
     servUsage = {}
-    for t,tObj in curTasks.items():
-        if(tObj["server"] in servs.keys()):
-            if(tObj["server"] in servUsage.keys()):
-                servUsage[tObj["server"]] += float(tObj[f"t{mtype}"])
-            else:
-                servUsage[tObj["server"]] = float(tObj[f"t{mtype}"])
+
+    if(curTasks):
+        for t,tObj in curTasks.items():
+            if(tObj["server"] in servs.keys()):
+                if(tObj["server"] in servUsage.keys()):
+                    servUsage[tObj["server"]] += float(tObj[f"t{mtype}"])
+                else:
+                    servUsage[tObj["server"]] = float(tObj[f"t{mtype}"])
 
     for serv,usage in servUsage.items():
         utilizationRates[serv] = float(usage)/float(servResource[serv])
@@ -481,9 +493,8 @@ def handleInput(dat):
             getServerSenderInfo(taskAgentState,cmdVals)
         
         s = taskAgent.act(taskAgentState)
-        s += 1 #avoid choosing server = 0
-        print(f"taskAction (server choice): {s}")
-        c = correctConSelect(s,taskAgentState)
+        print(f"taskAction (server choice): {s+1}")
+        c = correctConSelect(s+1,taskAgentState)
         print(f"container choice: {c}")
 
         #t = randomServConSelect()
@@ -621,7 +632,9 @@ taskAgentActionSize = 30
 taskAgentState = np.zeros(taskAgentStateSize)
 
 episodes = 0
-taskAgent = DQNAgent(taskAgentStateSize,taskAgentActionSize,"./AILOGS/t1_loss.txt")
+path_to_script = os.path.dirname(os.path.abspath(__file__))
+mFile = os.path.join(path_to_script, "AILOGS/t1_loss.txt")
+taskAgent = DQNAgent(taskAgentStateSize,taskAgentActionSize,mFile)
 
 
 mt = threading.Thread(target=runServer,args=())
