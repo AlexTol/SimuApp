@@ -20,23 +20,23 @@ Complete = {}
 Deny = {}
 Slow = {}
 
-Complete["A"] = .001
-Complete["B"] = .001
-Complete["C"]  = .0025
-Complete["D"]  = .005
+Complete["A"] = 1
+Complete["B"] = 1
+Complete["C"]  = 5
+Complete["D"]  = 10
 
-Deny["A"] = .002
-Deny["B"] = .002
-Deny["C"] = .005
-Deny["D"] = .01
+Deny["A"] = 2
+Deny["B"] = 2
+Deny["C"] = 5
+Deny["D"] = 10
 
-Slow["A"] = .001
-Slow["B"] = .001
-Slow["C"] = .0025
-Slow["D"] = - .001
+Slow["A"] = .25
+Slow["B"] = .5
+Slow["C"] = 1
+Slow["D"] = -5
 
-serverPassive = .0005 
-conPassive = .00005
+serverPassive = .05 
+conPassive = .01
 
 #global prevCPUUsage
 prevCPUUsage = {}
@@ -259,6 +259,8 @@ def getEntityUtilization(servs,mtype):
 
     if(curTasks):
         for t,tObj in curTasks.items():
+            if(not tObj):
+                continue
             if(tObj["server"] in servs.keys()):
                 if(tObj["server"] in servUsage.keys()):
                     servUsage[tObj["server"]] += float(tObj[f"t{mtype}"])
@@ -367,6 +369,17 @@ def getServerSenderInfo(state,cmdVals):
             state[index] = val
             index += 1
 
+        regionVals = regionToArrRep(servObj["region"])
+        for i in range (0,6):
+            state[index] = regionVals[i]
+            index += 1
+
+        #if it exists
+        state[index] = 1
+        index += 1
+
+        
+
 
 def displayEnvState():
     taskData = getTaskData()
@@ -420,7 +433,18 @@ def agentTime():
         displayEnvState()
         clearFinishedQueries()
 
+def averageDif(mlist): #credit for simpler way https://stackoverflow.com/questions/47040728/get-average-difference-between-all-numbers-in-a-list-python
+    diffs = []
+    for i, e in enumerate(mlist):
+        for j, f in enumerate(mlist):
+            if i != j: diffs.append(abs(e-f))
+
+    return sum(diffs)/len(diffs)
+
 def reward1(secondPassed):
+    mFile = os.path.join(path_to_script, "AILOGS/reward1.txt")
+    f = open(mFile,"a")
+
     reward = 0
     #add up all the utilization rates
     servs = getServers()
@@ -439,24 +463,47 @@ def reward1(secondPassed):
     if(len(utilAverages) > 0):
         utilAverage = utilAverage/len(utilAverages)
 
+    f.write("utilAverage: " + str(utilAverage)+",")
+
     #add profit plus costs
     servCons = getContainers(servs)
     taskData = getTaskData()
     profit = calcReqProfit(taskData)
+    f.write("profit: " + str(profit)+",")
     #only calculate the cost everysecond
     serverCosts = getServerCost(servCons)  if(secondPassed) else 0
 
     reward += float(profit)
+    totalCosts = 0
     if(serverCosts != 0):
         for serv,cost in serverCosts.items():
+            totalCosts += cost
             reward -= cost
+    f.write("totalCosts: " + str(totalCosts)+",")
 
     clearFinishedQueries()
 
+    utilAverageDiff = averageDif(utilAverages)
+    evenDiffMultiplier = 1
+    if(utilAverageDiff <= .1):
+        evenDiffMultiplier = 3
+    elif(utilAverageDiff <= .25):
+        evenDiffMultiplier = 2
+    elif(utilAverageDiff <= .3):
+        evenDiffMultiplier = 1.5
+    elif(utilAverageDiff <= .5):
+        evenDiffMultiplier = 1.25
+    
+    f.write("evenDiffMultiplier: " + str(evenDiffMultiplier)+",")
+
     if(reward <= 0):
+        f.write("reward: " + str(reward)+"\n")
+        f.close()
         return reward
     else:
-        return (utilAverage * reward)
+        f.write("reward: " + str((evenDiffMultiplier * (2 + utilAverage) * reward))+"\n")
+        f.close()
+        return (evenDiffMultiplier * (2 + utilAverage) * reward)
 
 
 def dictToTcpString(cmdVals):
@@ -493,8 +540,9 @@ def handleInput(dat):
             getServerSenderInfo(taskAgentState,cmdVals)
         
         s = taskAgent.act(taskAgentState)
-        print(f"taskAction (server choice): {s+1}")
-        c = correctConSelect(s+1,taskAgentState)
+        schoice = s+1
+        print(f"taskAction (server choice): {schoice}")
+        c = correctConSelect(schoice,taskAgentState)
         print(f"container choice: {c}")
 
         #t = randomServConSelect()
@@ -509,8 +557,8 @@ def handleInput(dat):
         
         taskString = dictToTcpString(cmdVals)
         with execlock:
-            print(f"AGENT 1: cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{s},con:{c},buff:buff")
-            execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{s},con:{c},buff:buff".encode()) #problem is here, doesn't completely send
+            print(f"AGENT 1: cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{schoice},con:{c},buff:buff")
+            execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{schoice},con:{c},buff:buff".encode()) #problem is here, doesn't completely send
             while not execGet:
                 pass
             #print("exiting while in agent1\n")
@@ -520,7 +568,7 @@ def handleInput(dat):
             time.sleep(1)
             getServerSenderInfo(taskAgentState,cmdVals) # sets taskAgentState by reference
 
-            if(minute_passed(curTime)):
+            if(second_passed(curTime)):
                 curTime = time.time()
                 reward = reward1(True)
             else:
@@ -542,8 +590,8 @@ def handleInput(dat):
         print("set exec get to true!!!\n")
         execGet = True
     
-def minute_passed(prevTime):
-    return time.time() - prevTime >= 60
+def second_passed(prevTime):
+    return time.time() - prevTime >= 1
 
 
 #server obtained from https://gist.github.com/logasja/97bddeb84879b30519efb0c66b4db159
@@ -627,7 +675,7 @@ curTime = time.time()
 #orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff')
 #todo figure out dimension of server and task inputs
 #Task_dims + (num_servers * server_dims)
-taskAgentStateSize = 12 + (30 * 16)
+taskAgentStateSize = 12 + (30 * 17)
 taskAgentActionSize = 30
 taskAgentState = np.zeros(taskAgentStateSize)
 

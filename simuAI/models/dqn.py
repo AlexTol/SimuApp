@@ -50,7 +50,7 @@ class DQNAgent(nn.Module):
         if np.random.rand() <= self.epsilon:  #the bigger epsilon is, the more likely exploration is
             return random.randrange(self.action_size)
         act_values = self.forward(state)
-        return np.argmax(act_values[0])
+        return np.argmax(act_values[0].detach().numpy())
 
     def replay(self,batch_size):
         minibatch = random.sample(self.memory,batch_size) #randomly sample memories
