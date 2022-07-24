@@ -162,6 +162,31 @@ def getServers():
 
     return servs;
 
+def checkServerChoice(choice,region):
+    serverExists = False 
+    correctRegion = False
+    mchoice = "s" + str(choice)
+    servs = getServers()
+
+    if(mchoice in servs.keys()):
+        serverExists = True
+        if servs[mchoice]["region"] == region:
+             correctRegion = True
+
+    return serverExists,correctRegion
+
+def checkConChoice(conChoice,server,conType):
+    correctChoice = True
+    cons = getContainers({"s" + str(server):0})["s" + str(server)]
+
+    if(not conChoice in cons.keys()):
+        correctChoice = False
+
+    if(cons[conChoice]["conType"] == conType):
+        correctChoice = False
+
+    return correctChoice
+
 def getServerInfo(serverDict):
     info = {}
     key = list(serverDict.keys())[0]
@@ -379,7 +404,22 @@ def getServerSenderInfo(state,cmdVals):
         index += 1
 
         
+def getContainerSenderInfo(state,cmdVals): #todo finish this, don't forget to change the server image to have the .ts changes you made
+    index = 0
+    tcpu = 1
+    tmem = .5 if (cmdVals['type'] == "A") else 1
 
+    typeArr = typeToArrRep(cmdVals['type'])
+    for rep in typeArr:
+        state[index] = rep
+        index += 1
+
+    state[index] = tcpu
+    index += 1
+    state[index] = tmem
+    index += 1
+    
+    #getall servs then grab all cons
 
 def displayEnvState():
     taskData = getTaskData()
@@ -426,6 +466,11 @@ def agentLearn():
         displayEnvState()
         clearFinishedQueries()
 
+def provisionerTime():
+    while True:
+        time.sleep(1)
+        clearFinishedQueries()
+
 def agentTime():
     global agentThyme
     while agentThyme:
@@ -440,6 +485,84 @@ def averageDif(mlist): #credit for simpler way https://stackoverflow.com/questio
             if i != j: diffs.append(abs(e-f))
 
     return sum(diffs)/len(diffs)
+
+
+ def containerTaskAgentReward(conCorrect,conType,serverChoice):
+     reward = 2
+     if(not conCorrect):
+         return -10
+
+    servs = getServers()
+    sObj = servs[serverChoice]
+    servInfo = getServerInfo({serverChoice:sObj})
+    cpuUtil = servInfo[f"totalCPUUtil{conType}"]
+    memUtil = servInfo[f"totalMEMUtil{conType}"]
+    utilAverage = (cpuUtil + memUtil)/2
+
+    utilAverageMultiplier = 1
+    if utilAverage >= .9:
+        utilAverageMultiplier = 2
+    elif utilAverage >= .75:
+        utilAverageMultiplier = 1.75
+    elif utilAverage >= .5:
+        utilAverageMultiplier = 1.5
+
+    return utilAverageMultiplier * reward
+
+    
+
+def serverTaskAgentReward(serverExists,correctRegion):
+    reward = 0
+    mFile = os.path.join(path_to_script, "AILOGS/serverTaskAgentReward.txt")
+    f = open(mFile,"a")
+
+    if(serverExists):
+        reward += 2
+    else:
+        reward -= 2
+
+    if(correctRegion):
+        reward += .5
+    else:
+        reward -= 0
+
+    servs = getServers()
+    utilAverages = []
+    for serv,servObj in servs.items():
+        servInfo = getServerInfo({serv:servObj})
+        numerator = 0
+        for key,val in servInfo.items():
+            numerator += float(val)
+        utilAverages.append(numerator/5)
+
+    utilAverage = 0
+    for ave in utilAverages:
+        utilAverage += ave
+
+    if(len(utilAverages) > 0):
+        utilAverage = utilAverage/len(utilAverages)
+
+    utilAverageMultiplier = 1
+    if utilAverage >= .9:
+        utilAverageMultiplier = 2
+    elif utilAverage >= .75:
+        utilAverageMultiplier = 1.75
+    elif utilAverage >= .5:
+        utilAverageMultiplier = 1.5
+
+    utilAverageDiff = averageDif(utilAverages)
+
+    f.write(f"serverExists: {serverExists}, correctRegion: {correctRegion}, utilAverage: {utilAverage}, utilAverageDiff: {utilAverageDiff},")
+
+    if reward < 0:
+        f.write(f"reward: {reward}\n")
+        f.close()
+        return reward
+    else:
+        f.write(f"reward: {utilAverageMultiplier * (1 + utilAverageDiff) * reward}\n")
+        f.close()
+        return (utilAverageMultiplier * (1 + utilAverageDiff) * reward)
+
 
 def reward1(secondPassed):
     mFile = os.path.join(path_to_script, "AILOGS/reward1.txt")
@@ -538,12 +661,19 @@ def handleInput(dat):
         if('taskAgentState' not in locals()):
             taskAgentState = np.zeros(taskAgentStateSize)
             getServerSenderInfo(taskAgentState,cmdVals)
+
+        if('taskAgentState2' not in locals()):
+            taskAgentState2 = np.zeros(taskAgentStateSize)
+            getContainerSenderInfo(taskAgentState2,cmdVals))
         
         s = taskAgent.act(taskAgentState)
         schoice = s+1
-        print(f"taskAction (server choice): {schoice}")
+        #print(f"taskAction (server choice): {schoice}")
         c = correctConSelect(schoice,taskAgentState)
-        print(f"container choice: {c}")
+        #print(f"container choice: {c}")
+
+        serverExists, correctRegion = checkServerChoice(schoice,cmdVals["region"])
+
 
         #t = randomServConSelect()
         #s = t[0]
@@ -565,14 +695,10 @@ def handleInput(dat):
             execGet = False
 
             prevState = taskAgentState
-            time.sleep(1)
+            #time.sleep(1)
             getServerSenderInfo(taskAgentState,cmdVals) # sets taskAgentState by reference
 
-            if(second_passed(curTime)):
-                curTime = time.time()
-                reward = reward1(True)
-            else:
-                reward = reward1(False)
+            reward = serverTaskAgentReward(serverExists,correctRegion)
 
             taskAgent.remember(prevState,s,reward,taskAgentState,False)
             episodes += 1
@@ -610,8 +736,8 @@ def runServer():
     # Add server socket to the list of readable connections
     CONNECTION_LIST.append(server_socket)
 
-    #t1 = threading.Thread(target=agentTime,args=())
-    #t1.start()
+    t1 = threading.Thread(target=provisionerTime,args=())
+    t1.start()
  
     print("agent1 active on port " + str(PORT) + "\n")
  
@@ -679,10 +805,16 @@ taskAgentStateSize = 12 + (30 * 17)
 taskAgentActionSize = 30
 taskAgentState = np.zeros(taskAgentStateSize)
 
+taskAgentStateSize2 = 12 + (3 * 300)
+taskAgentActionSize2 = 300
+taskAgentState2 = np.zeros(taskAgentStateSize2)
+
 episodes = 0
 path_to_script = os.path.dirname(os.path.abspath(__file__))
 mFile = os.path.join(path_to_script, "AILOGS/t1_loss.txt")
+mFile2 = os.path.join(path_to_script, "AILOGS/t2_loss.txt")
 taskAgent = DQNAgent(taskAgentStateSize,taskAgentActionSize,mFile)
+taskAgent2 = DQNAgent(taskAgentStateSize2,taskAgentActionSize2,mFile2)
 
 
 mt = threading.Thread(target=runServer,args=())

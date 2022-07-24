@@ -14,7 +14,9 @@ class App {
   private mountRoutes (): void {
     const router = express.Router()
     var type
+    var totMEM
     var MEM
+    var totCPU
     var CPU
     var Dat
 
@@ -22,7 +24,9 @@ class App {
     Dat = data.split("\n")
 
     type = Dat[0].split(":")[1];
+    totMEM = parseFloat(Dat[1].split(":")[1]);
     MEM = parseFloat(Dat[1].split(":")[1]);
+    totCPU = parseFloat(Dat[2].split(":")[1]);
     CPU = parseFloat(Dat[2].split(":")[1]);
 
     router.post('/simu', async (req, res) => {
@@ -60,7 +64,16 @@ class App {
       })
     })
 
+    router.post('/simuUtil', async (req, res) => {
+      var memUtil = MEM/totMEM
+      var cpuUtil = CPU/totCPU
 
+      res.json({
+        message: 'done!',
+        mUTIL : memUtil,
+        cUtil : cpuUtil,
+    })
+  })
 
     this.express.use('/', router)
   }

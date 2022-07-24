@@ -258,7 +258,7 @@ void generateTasks()
 {
     //todo send this to python agent and also make sure to save tasks to redis
     int[] typechances = [40,20,20,20];
-    int[] regionChances = [50,5,25,5,10,5];
+    int[] regionChances = [25,15,15,15,15,15];
     int wlid = 1;
     Socket mAgent1 = cast(Socket) agent1;
 
