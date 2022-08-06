@@ -8,6 +8,7 @@ from signal import signal, SIGPIPE, SIG_DFL
 from models.dqn import DQNAgent
 import numpy as np
 import os
+import requests
 
 agentThyme = True
 #global execGet
@@ -175,17 +176,18 @@ def checkServerChoice(choice,region):
 
     return serverExists,correctRegion
 
-def checkConChoice(conChoice,server,conType):
-    correctChoice = True
+def checkConChoice(conChoice,server,taskType):
+    conExists = True
+    conTypeCorrect = True
     cons = getContainers({"s" + str(server):0})["s" + str(server)]
 
     if(not conChoice in cons.keys()):
-        correctChoice = False
+        conExists = False
 
-    if(cons[conChoice]["conType"] == conType):
-        correctChoice = False
+    if(cons[conChoice]["conType"] != taskType):
+        conTypeCorrect = False
 
-    return correctChoice
+    return conExists,conTypeCorrect
 
 def getServerInfo(serverDict):
     info = {}
@@ -404,8 +406,12 @@ def getServerSenderInfo(state,cmdVals):
         index += 1
 
         
-def getContainerSenderInfo(state,cmdVals): #todo finish this, don't forget to change the server image to have the .ts changes you made
+def getContainerSenderInfo(state,cmdVals,schoice): #todo finish this, don't forget to change the server image to have the .ts changes you made
     index = 0
+
+    if(schoice == 0):
+        return
+
     tcpu = 1
     tmem = .5 if (cmdVals['type'] == "A") else 1
 
@@ -419,7 +425,59 @@ def getContainerSenderInfo(state,cmdVals): #todo finish this, don't forget to ch
     state[index] = tmem
     index += 1
     
-    #getall servs then grab all cons
+    #getall cons from serv
+    servcons = getContainers({"s" + str(schoice):0})
+
+    for serv,conTup in servcons.items():
+        for con,cObj in conTup.items():
+            #state[index] = servNameToNum(cObj["servName"])
+            #index += 1
+            state[index] = conNameToNum(con)
+            index += 1
+
+            state[index] = 1 if(cObj["conType"] == "A") else 0
+            index += 1
+            state[index] = 1 if(cObj["conType"] == "B") else 0
+            index += 1
+            state[index] = 1 if(cObj["conType"] == "C") else 0
+            index += 1
+            state[index] = 1 if(cObj["conType"] == "D") else 0
+            index += 1
+
+            state[index] = getConUtil(cObj["conPort"],"MEM")
+            index += 1
+            state[index] = getConUtil(cObj["conPort"],"CPU")
+            index += 1
+
+            #if it exists
+            state[index] = 1
+            index += 1
+
+def interpretConChoice(cchoice,schoice):
+    servcons = getContainers({"s" + str(schoice):0})
+    conTup = servcons["s" + str(schoice)]
+    conList = []
+    for con,cObj in conTup.items():
+        conList.append(con)
+
+    if 0 <= cchoice < len(conList):
+        return conNameToNum(conList[cchoice])
+    return 0
+
+
+def servNameToNum(sName):
+    return int(sName.split("s")[1])
+
+def conNameToNum(cName):
+    return int(cName.split("c")[1])
+
+def getConUtil(port,rtype):
+    r = requests.post(f"http://localhost:{port}/simuUtil")
+
+    if(rtype == "CPU"):
+        return r.json()["cUtil"]
+    else:
+        return r.json()["mUTIL"]
 
 def displayEnvState():
     taskData = getTaskData()
@@ -487,16 +545,38 @@ def averageDif(mlist): #credit for simpler way https://stackoverflow.com/questio
     return sum(diffs)/len(diffs)
 
 
- def containerTaskAgentReward(conCorrect,conType,serverChoice):
-     reward = 2
-     if(not conCorrect):
-         return -10
+def containerTaskAgentReward(conExists,conTypeCorrect,conType,serverChoice,conChoice,servExists):
+    reward = 0
+    mFile = os.path.join(path_to_script, "AILOGS/containerTaskAgentReward.txt")
+    f = open(mFile,"a")
 
     servs = getServers()
-    sObj = servs[serverChoice]
-    servInfo = getServerInfo({serverChoice:sObj})
-    cpuUtil = servInfo[f"totalCPUUtil{conType}"]
-    memUtil = servInfo[f"totalMEMUtil{conType}"]
+    if(servExists):
+        sname = "s" + str(serverChoice)
+        sObj = servs[sname]
+        servInfo = getServerInfo({sname:sObj})
+    else:
+        f.write(f"server doesn't exist,skipping\n")
+        f.close()
+        return
+
+    if(conExists):
+        reward += 1
+    else:
+        reward -= 1
+
+    if(conTypeCorrect):
+        reward += 9
+    else:
+        reward -= 1
+
+    if(conType != "NA" and servExists):
+        cpuUtil = servInfo[f"totalCPUUtil{conType}"]
+        memUtil = servInfo[f"totalMEMUtil{conType}"]
+    else:
+        cpuUtil = 0
+        memUtil = 0
+
     utilAverage = (cpuUtil + memUtil)/2
 
     utilAverageMultiplier = 1
@@ -507,6 +587,13 @@ def averageDif(mlist): #credit for simpler way https://stackoverflow.com/questio
     elif utilAverage >= .5:
         utilAverageMultiplier = 1.5
 
+    if(reward < 0):
+        f.write(f"conExists: {conExists},conTypeCorrect: {conTypeCorrect},conChoice :{conChoice},utilAverage: {utilAverage},reward: {reward}\n")
+        f.close()
+        return reward
+
+    f.write(f"conExists: {conExists},conTypeCorrect: {conTypeCorrect},conChoice :{conChoice},utilAverage: {utilAverage},reward: {utilAverageMultiplier * reward}\n")
+    f.close()
     return utilAverageMultiplier * reward
 
     
@@ -646,6 +733,7 @@ def handleInput(dat):
     global execSock
     global taskAgent
     global episodes
+    global episodes2
     global curTime
 
     cmdVals = processInput(dat)
@@ -663,48 +751,65 @@ def handleInput(dat):
             getServerSenderInfo(taskAgentState,cmdVals)
 
         if('taskAgentState2' not in locals()):
-            taskAgentState2 = np.zeros(taskAgentStateSize)
-            getContainerSenderInfo(taskAgentState2,cmdVals))
+            taskAgentState2 = np.zeros(taskAgentStateSize2)
+            getContainerSenderInfo(taskAgentState2,cmdVals,0)
         
+        #do the rest of the container agent stuff
         s = taskAgent.act(taskAgentState)
         schoice = s+1
         #print(f"taskAction (server choice): {schoice}")
-        c = correctConSelect(schoice,taskAgentState)
+        c = taskAgent2.act(taskAgentState2)
+        cchoice = interpretConChoice(c,schoice)
+        #strCChoice = "c" + str(cchoice)
+        #c = correctConSelect(schoice,taskAgentState)
         #print(f"container choice: {c}")
 
         serverExists, correctRegion = checkServerChoice(schoice,cmdVals["region"])
-
+        conExists = False
+        conTypeCorrect = False
 
         #t = randomServConSelect()
         #s = t[0]
         #c = t[1]
-        conInfo = decodeObj(r.hgetall(f"{c}"))
+        conInfo = decodeObj(r.hgetall(f"c{cchoice}"))
         conPort = 0
         conType = "NA"
         if(conInfo):
             conPort = conInfo['conPort']
             conType = conInfo['conType']
+            conExists,conTypeCorrect = checkConChoice("c"+str(cchoice),schoice,cmdVals['type'])
         
         taskString = dictToTcpString(cmdVals)
         with execlock:
-            print(f"AGENT 1: cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{schoice},con:{c},buff:buff")
-            execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{schoice},con:{c},buff:buff".encode()) #problem is here, doesn't completely send
+            print(f"AGENT 1: cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{schoice},con:{cchoice},buff:buff")
+            execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{schoice},con:{cchoice},buff:buff".encode()) #problem is here, doesn't completely send
             while not execGet:
                 pass
             #print("exiting while in agent1\n")
             execGet = False
 
             prevState = taskAgentState
+            prevState2 = taskAgentState2
             #time.sleep(1)
             getServerSenderInfo(taskAgentState,cmdVals) # sets taskAgentState by reference
+            getContainerSenderInfo(taskAgentState2,cmdVals,schoice)
 
             reward = serverTaskAgentReward(serverExists,correctRegion)
+            reward2 = containerTaskAgentReward(conExists,conTypeCorrect,conType,schoice,cchoice,serverExists)
 
             taskAgent.remember(prevState,s,reward,taskAgentState,False)
             episodes += 1
+            if(serverExists):
+                taskAgent2.remember(prevState2,c,reward2,taskAgentState2,False)
+                episodes2 += 1
+
             if episodes == 32:
                 episodes = 0
                 taskAgent.replay(32)
+
+            if episodes2 == 32:
+                episodes2 = 0
+                taskAgent2.replay(32)
 
         #clearFinishedQueries()
         #agentLearn()
@@ -805,11 +910,12 @@ taskAgentStateSize = 12 + (30 * 17)
 taskAgentActionSize = 30
 taskAgentState = np.zeros(taskAgentStateSize)
 
-taskAgentStateSize2 = 12 + (3 * 300)
-taskAgentActionSize2 = 300
+taskAgentStateSize2 =  12 + (7 * 50)
+taskAgentActionSize2 = 50
 taskAgentState2 = np.zeros(taskAgentStateSize2)
 
 episodes = 0
+episodes2 = 0
 path_to_script = os.path.dirname(os.path.abspath(__file__))
 mFile = os.path.join(path_to_script, "AILOGS/t1_loss.txt")
 mFile2 = os.path.join(path_to_script, "AILOGS/t2_loss.txt")

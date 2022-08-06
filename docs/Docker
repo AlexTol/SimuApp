@@ -1,5 +1,8 @@
 NOTE : DOCKER DOES NOT PLAY NICE WITH SYMLINKS
 
-sudo docker build -t app -f Dockerfile.AppC .
+sudo docker build -t appa -f Dockerfile.AppA . //should be done in your VM
+sudo docker build -t appb -f Dockerfile.AppB . //should be done in your VM
+sudo docker build -t appc -f Dockerfile.AppC . //should be done in your VM
+sudo docker build -t appd -f Dockerfile.AppD . //should be done in your VM
 
 sudo docker run --name appname -d -p 9001:8000 app

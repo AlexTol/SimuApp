@@ -539,7 +539,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
             return;
         }
 
-        string consQ = format("HGETALL %s",cmdVals["con"]);
+        string consQ = format("HGETALL c%s",cmdVals["con"]);
         Response conRes = db.send(consQ);
         if(empty(conRes))
         {

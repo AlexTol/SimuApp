@@ -49,21 +49,25 @@ var App = /** @class */ (function () {
         var _this = this;
         var router = express.Router();
         var type;
+        var totMEM;
         var MEM;
+        var totCPU;
         var CPU;
         var Dat;
         var data = fs.readFileSync(path.resolve(__dirname, '../formats/format.txt'), 'utf8');
         Dat = data.split("\n");
         type = Dat[0].split(":")[1];
-        MEM = Dat[1].split(":")[1];
-        CPU = Dat[2].split(":")[1];
+        totMEM = parseFloat(Dat[1].split(":")[1]);
+        MEM = parseFloat(Dat[1].split(":")[1]);
+        totCPU = parseFloat(Dat[2].split(":")[1]);
+        CPU = parseFloat(Dat[2].split(":")[1]);
         router.post('/simu', function (req, res) { return __awaiter(_this, void 0, void 0, function () {
             var jobMem, jobCPU;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
-                        jobMem = parseInt(req.get('jobmem'));
-                        jobCPU = parseInt(req.get('jobcpu'));
+                        jobMem = parseFloat(req.get('jobmem'));
+                        jobCPU = parseFloat(req.get('jobcpu'));
                         if (jobMem > MEM) {
                             res.json({
                                 message: 'FAIL',
@@ -93,6 +97,19 @@ var App = /** @class */ (function () {
                         });
                         return [2 /*return*/];
                 }
+            });
+        }); });
+        router.post('/simuUtil', function (req, res) { return __awaiter(_this, void 0, void 0, function () {
+            var memUtil, cpuUtil;
+            return __generator(this, function (_a) {
+                memUtil = (totMEM - MEM) / totMEM;
+                cpuUtil = (totCPU - CPU) / totCPU;
+                res.json({
+                    message: 'done!',
+                    mUTIL: memUtil,
+                    cUtil: cpuUtil
+                });
+                return [2 /*return*/];
             });
         }); });
         this.express.use('/', router);

@@ -65,8 +65,8 @@ class App {
     })
 
     router.post('/simuUtil', async (req, res) => {
-      var memUtil = MEM/totMEM
-      var cpuUtil = CPU/totCPU
+      var memUtil = (totMEM-MEM)/totMEM
+      var cpuUtil = (totCPU-CPU)/totCPU
 
       res.json({
         message: 'done!',
