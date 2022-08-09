@@ -725,6 +725,94 @@ def dictToTcpString(cmdVals):
 
     return f"id:{mid},type:{mtype},timetocomplete:{ttc},region:{region},deps:{deps}"
 
+def zeroEncodeAgentTime(cmdVals):
+    global execlock #how to access global var
+    global orchlock
+    global execGet
+    global orchSock
+    global execSock
+    global taskAgent
+    global episodes
+    global episodes2
+    global curTime
+
+    with orchlock:
+        print("orchsock send!\n")
+        orchSock.sendall(b'cmd:agent1Get,buff:buff\r\n')
+    print("orchsock done!\n")
+
+    ##deep learning stuff here
+    if('taskAgentState' not in locals()):
+        taskAgentState = np.zeros(taskAgentStateSize)
+        getServerSenderInfo(taskAgentState,cmdVals)
+
+    if('taskAgentState2' not in locals()):
+        taskAgentState2 = np.zeros(taskAgentStateSize2)
+        getContainerSenderInfo(taskAgentState2,cmdVals,0)
+        
+    #do the rest of the container agent stuff
+    s = taskAgent.act(taskAgentState)
+    schoice = s+1
+    #print(f"taskAction (server choice): {schoice}")
+    c = taskAgent2.act(taskAgentState2)
+    cchoice = interpretConChoice(c,schoice)
+    #strCChoice = "c" + str(cchoice)
+    #c = correctConSelect(schoice,taskAgentState)
+    #print(f"container choice: {c}")
+
+    serverExists, correctRegion = checkServerChoice(schoice,cmdVals["region"])
+    conExists = False
+    conTypeCorrect = False
+
+    #t = randomServConSelect()
+    #s = t[0]
+    #c = t[1]
+    conInfo = decodeObj(r.hgetall(f"c{cchoice}"))
+    conPort = 0
+    conType = "NA"
+    if(conInfo):
+        conPort = conInfo['conPort']
+        conType = conInfo['conType']
+        conExists,conTypeCorrect = checkConChoice("c"+str(cchoice),schoice,cmdVals['type'])
+        
+    taskString = dictToTcpString(cmdVals)
+    with execlock:
+        print(f"AGENT 1: cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{schoice},con:{cchoice},buff:buff")
+        execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{schoice},con:{cchoice},buff:buff".encode()) #problem is here, doesn't completely send
+        while not execGet:
+            pass
+        #print("exiting while in agent1\n")
+        execGet = False
+
+        prevState = taskAgentState
+        prevState2 = taskAgentState2
+        #time.sleep(1)
+        getServerSenderInfo(taskAgentState,cmdVals) # sets taskAgentState by reference
+        getContainerSenderInfo(taskAgentState2,cmdVals,schoice)
+
+        reward = serverTaskAgentReward(serverExists,correctRegion)
+        reward2 = containerTaskAgentReward(conExists,conTypeCorrect,conType,schoice,cchoice,serverExists)
+
+        taskAgent.remember(prevState,s,reward,taskAgentState,False)
+        episodes += 1
+        if(serverExists):
+            taskAgent2.remember(prevState2,c,reward2,taskAgentState2,False)
+            episodes2 += 1
+
+        if episodes == 32:
+            episodes = 0
+            taskAgent.replay(32)
+
+        if episodes2 == 32:
+            episodes2 = 0
+            taskAgent2.replay(32)
+
+    #clearFinishedQueries()
+    #agentLearn()
+    #print("%s\n",cmdVals)
+
+
+
 def handleInput(dat):
     global execlock #how to access global var
     global orchlock
@@ -740,80 +828,7 @@ def handleInput(dat):
     if len(cmdVals) == 0:
         print("Empty cmdVals instance py\n")
     elif  cmdVals['cmd'] == "stask":
-        with orchlock:
-            print("orchsock send!\n")
-            orchSock.sendall(b'cmd:agent1Get,buff:buff\r\n')
-        print("orchsock done!\n")
-
-        ##deep learning stuff here
-        if('taskAgentState' not in locals()):
-            taskAgentState = np.zeros(taskAgentStateSize)
-            getServerSenderInfo(taskAgentState,cmdVals)
-
-        if('taskAgentState2' not in locals()):
-            taskAgentState2 = np.zeros(taskAgentStateSize2)
-            getContainerSenderInfo(taskAgentState2,cmdVals,0)
-        
-        #do the rest of the container agent stuff
-        s = taskAgent.act(taskAgentState)
-        schoice = s+1
-        #print(f"taskAction (server choice): {schoice}")
-        c = taskAgent2.act(taskAgentState2)
-        cchoice = interpretConChoice(c,schoice)
-        #strCChoice = "c" + str(cchoice)
-        #c = correctConSelect(schoice,taskAgentState)
-        #print(f"container choice: {c}")
-
-        serverExists, correctRegion = checkServerChoice(schoice,cmdVals["region"])
-        conExists = False
-        conTypeCorrect = False
-
-        #t = randomServConSelect()
-        #s = t[0]
-        #c = t[1]
-        conInfo = decodeObj(r.hgetall(f"c{cchoice}"))
-        conPort = 0
-        conType = "NA"
-        if(conInfo):
-            conPort = conInfo['conPort']
-            conType = conInfo['conType']
-            conExists,conTypeCorrect = checkConChoice("c"+str(cchoice),schoice,cmdVals['type'])
-        
-        taskString = dictToTcpString(cmdVals)
-        with execlock:
-            print(f"AGENT 1: cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{schoice},con:{cchoice},buff:buff")
-            execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{schoice},con:{cchoice},buff:buff".encode()) #problem is here, doesn't completely send
-            while not execGet:
-                pass
-            #print("exiting while in agent1\n")
-            execGet = False
-
-            prevState = taskAgentState
-            prevState2 = taskAgentState2
-            #time.sleep(1)
-            getServerSenderInfo(taskAgentState,cmdVals) # sets taskAgentState by reference
-            getContainerSenderInfo(taskAgentState2,cmdVals,schoice)
-
-            reward = serverTaskAgentReward(serverExists,correctRegion)
-            reward2 = containerTaskAgentReward(conExists,conTypeCorrect,conType,schoice,cchoice,serverExists)
-
-            taskAgent.remember(prevState,s,reward,taskAgentState,False)
-            episodes += 1
-            if(serverExists):
-                taskAgent2.remember(prevState2,c,reward2,taskAgentState2,False)
-                episodes2 += 1
-
-            if episodes == 32:
-                episodes = 0
-                taskAgent.replay(32)
-
-            if episodes2 == 32:
-                episodes2 = 0
-                taskAgent2.replay(32)
-
-        #clearFinishedQueries()
-        #agentLearn()
-    #print("%s\n",cmdVals)
+        zeroEncodeAgentTime(cmdVals)
     elif  cmdVals['cmd'] == "connect":
         with orchlock:
             orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff\r\n')
