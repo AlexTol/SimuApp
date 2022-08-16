@@ -6,6 +6,7 @@ import random
 import json
 from signal import signal, SIGPIPE, SIG_DFL
 from models.dqn import DQNAgent
+from models.scheduleNet import ScheduleNet
 import numpy as np
 import os
 import requests
@@ -383,7 +384,7 @@ def getServerSenderInfo(state,cmdVals):
     index += 1
 
     regionArr = regionToArrRep(cmdVals['region'])
-    for rep in typeArr:
+    for rep in regionArr:
         state[index] = rep
         index += 1
 
@@ -405,6 +406,72 @@ def getServerSenderInfo(state,cmdVals):
         state[index] = 1
         index += 1
 
+def scheduleLayer1Info(state,cmdVals,servTuple):
+    index = 0
+    tcpu = 1
+    tmem = .5 if (cmdVals['type'] == "A") else 1
+
+    typeArr = typeToArrRep(cmdVals['type'])
+    for rep in typeArr:
+        state[index] = rep
+        index += 1
+
+    state[index] = tcpu
+    index += 1
+    state[index] = tmem
+    index += 1
+
+    regionArr = regionToArrRep(cmdVals['region'])
+    for rep in regionArr:
+        state[index] = rep
+        index += 1
+
+    servInfo = getServerInfo(servTuple)
+    for key,val in servInfo.items():
+        state[index] = val
+        index += 1
+
+    regionVals = regionToArrRep(servObj["region"])
+    for i in range (0,6):
+        state[index] = regionVals[i]
+        index += 1
+
+def scheduleLayer2Info(state,cmdVals,con,cObj):
+    index = 0
+    tcpu = 1
+    tmem = .5 if (cmdVals['type'] == "A") else 1
+
+    typeArr = typeToArrRep(cmdVals['type'])
+    for rep in typeArr:
+        state[index] = rep
+        index += 1
+
+    state[index] = tcpu
+    index += 1
+    state[index] = tmem
+    index += 1
+
+    regionArr = regionToArrRep(cmdVals['region'])
+    for rep in regionArr:
+        state[index] = rep
+        index += 1
+
+    state[index] = conNameToNum(con)
+    index += 1
+
+    state[index] = 1 if(cObj["conType"] == "A") else 0
+    index += 1
+    state[index] = 1 if(cObj["conType"] == "B") else 0
+    index += 1
+    state[index] = 1 if(cObj["conType"] == "C") else 0
+    index += 1
+    state[index] = 1 if(cObj["conType"] == "D") else 0
+    index += 1
+
+    state[index] = getConUtil(cObj["conPort"],"MEM")
+    index += 1
+    state[index] = getConUtil(cObj["conPort"],"CPU")
+    index += 1
         
 def getContainerSenderInfo(state,cmdVals,schoice): #todo finish this, don't forget to change the server image to have the .ts changes you made
     index = 0
@@ -811,6 +878,45 @@ def zeroEncodeAgentTime(cmdVals):
     #agentLearn()
     #print("%s\n",cmdVals)
 
+def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
+    global execlock #how to access global var
+    global orchlock
+    global execGet
+    global orchSock
+    global execSock
+    global curTime
+    global scheduleAgent 
+    global episodes3
+
+    servs = getServers()
+    layer1List = []
+    servNames = []
+
+    for serv,servObj in servs.items():
+        s = {}
+        s[serv] = servObj
+        state = np.zeros(l1_size) #l1_size should be 12 + 16, maybe more globals for the size
+
+        scheduleLayer1Info(state,cmdVals,s)
+
+        layer1List.append(state)
+        servNames.append(serv)
+
+    choices1,sChoice = scheduleAgent.act1(layer1List,servNames) # retrieve output from this and convert into containers. Also remember it
+
+    cons = getContainers({"s" + str(sChoice):0})["s" + str(sChoice)]
+
+    layer2List = []
+    for con,conObj in cons.items():
+        state2 = np.zeros(l2_size)
+        scheduleLayer2Info(state2,cmdVals,con,conObj)
+
+        layer2List.append(state2)
+
+    choices2,chosenCons = scheduleAgent.act2(layer2List)
+
+    choices3,chosenCon = scheduleAgent.act3(chosenCons,cons)
+    #todo make agents remember
 
 
 def handleInput(dat):
@@ -820,8 +926,10 @@ def handleInput(dat):
     global orchSock
     global execSock
     global taskAgent
+    global scheduleAgent 
     global episodes
     global episodes2
+    global episodes3
     global curTime
 
     cmdVals = processInput(dat)
@@ -925,7 +1033,7 @@ taskAgentStateSize = 12 + (30 * 17)
 taskAgentActionSize = 30
 taskAgentState = np.zeros(taskAgentStateSize)
 
-taskAgentStateSize2 =  12 + (7 * 50)
+taskAgentStateSize2 =  12 + (8 * 50) #conname,A?,B?,C?,D? UTIL MEM, UTIL CPU, exists
 taskAgentActionSize2 = 50
 taskAgentState2 = np.zeros(taskAgentStateSize2)
 
@@ -936,6 +1044,12 @@ mFile = os.path.join(path_to_script, "AILOGS/t1_loss.txt")
 mFile2 = os.path.join(path_to_script, "AILOGS/t2_loss.txt")
 taskAgent = DQNAgent(taskAgentStateSize,taskAgentActionSize,mFile)
 taskAgent2 = DQNAgent(taskAgentStateSize2,taskAgentActionSize2,mFile2)
+
+episodes3 = 0
+mFile3 = os.path.join(path_to_script, "AILOGS/sched1_loss.txt")
+mFile4 = os.path.join(path_to_script, "AILOGS/sched2_loss.txt")
+mFile5 = os.path.join(path_to_script, "AILOGS/sched3_loss.txt")
+scheduleAgent = ScheduleNet(12,16,7,7,mFile3,mFile4,mFile5) #the dims for servs and cons are -1 since we no longer need exists
 
 
 mt = threading.Thread(target=runServer,args=())

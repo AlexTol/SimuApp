@@ -16,13 +16,7 @@ class ScheduleNet(nn.Module):
         self.containerAgent1 = DQNAgent(static_size + l2dynamic_size,2,logFile1)
         self.containerAgent2 = DQNAgent(static_size + l3dynamic_size,2,logFile1)
 
-    def getActualServer(dims): #returns the server number
-        return dims[self.static_size] #server number will come right after the 
-
-    def getActualContainer(dims): #returns the server number
-        return dims[self.static_size] #server number will come right after the 
-
-    def act1(self,serverTaskDimList):
+    def act1(self,serverTaskDimList,servers):
         maxActVal = 0
         maxIndex = 0
         choices = []
@@ -34,7 +28,7 @@ class ScheduleNet(nn.Module):
                 maxActVal = currentVal
                 maxIndex = i
         
-        return choices,self.getActualServer(serverTaskDimList[maxIndex]),serverTaskDimList
+        return choices,self.getActualServer(servers[maxIndex])
 
     def act2(self,containerTaskDimList):
         choices = []
@@ -43,11 +37,11 @@ class ScheduleNet(nn.Module):
             top_index,act_vals = self.servAgent.actSurrogate(containerTaskDimList[i])
             choices.append(top_index)
             if(top_index == 1):
-                chosenCons.append()
+                chosenCons.append(containerTaskDimList[i])
         
-        return choices,containerTaskDimList,chosenCons
+        return choices,chosenCons
 
-    def act3(self,chosencontainerTaskDimList):
+    def act3(self,chosencontainerTaskDimList,containers):
         maxActVal = 0
         maxIndex = 0
         choices = []
@@ -59,9 +53,9 @@ class ScheduleNet(nn.Module):
                 maxActVal = currentVal
                 maxIndex = i
 
-        return choices,self.getActualContainer(chosencontainerTaskDimList[maxIndex]),chosencontainerTaskDimList
+        return choices,self.getActualContainer(containers[maxIndex])
 
-    def remember(self,states,actions,rewards,next_state):
+    def remember(self,layer,states,actions,rewards,next_state):
         if(layer == 1):
             for i in range(0,len(states)):
                 self.servAgent.remember((states[i],actions[i],rewards[i],next_state,False))
