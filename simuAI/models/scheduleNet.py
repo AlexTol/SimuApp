@@ -16,6 +16,7 @@ class ScheduleNet(nn.Module):
         self.containerAgent1 = DQNAgent(static_size + l2dynamic_size,2,logFile1)
         self.containerAgent2 = DQNAgent(static_size + l3dynamic_size,2,logFile1)
 
+
     def act1(self,serverTaskDimList,servers):
         maxActVal = 0
         maxIndex = 0
@@ -28,20 +29,24 @@ class ScheduleNet(nn.Module):
                 maxActVal = currentVal
                 maxIndex = i
         
-        return choices,self.getActualServer(servers[maxIndex])
+        return choices,servers[maxIndex]
 
-    def act2(self,containerTaskDimList):
+    def act2(self,containerTaskDimList,conObjs,conNames):
         choices = []
         chosenCons = []
+        chosenConObjs = []
+        chosenConNames = []
         for i in range(0,len(containerTaskDimList)):
             top_index,act_vals = self.servAgent.actSurrogate(containerTaskDimList[i])
             choices.append(top_index)
             if(top_index == 1):
                 chosenCons.append(containerTaskDimList[i])
+                chosenConObjs.append(conObjs[i])
+                chosenConNames.append(conNames[i])
         
-        return choices,chosenCons
+        return choices,chosenCons,chosenConsObjs,chosenConNames
 
-    def act3(self,chosencontainerTaskDimList,containers):
+    def act3(self,chosencontainerTaskDimList):
         maxActVal = 0
         maxIndex = 0
         choices = []
@@ -53,18 +58,18 @@ class ScheduleNet(nn.Module):
                 maxActVal = currentVal
                 maxIndex = i
 
-        return choices,self.getActualContainer(containers[maxIndex])
+        return choices,chosencontainerTaskDimList[maxIndex][12]
 
-    def remember(self,layer,states,actions,rewards,next_state):
+    def remember(self,layer,states,actions,rewards,next_states):
         if(layer == 1):
             for i in range(0,len(states)):
-                self.servAgent.remember((states[i],actions[i],rewards[i],next_state,False))
+                self.servAgent.remember((states[i],actions[i],rewards[i],next_states[i],False))
         elif(layer == 2):
             for i in range(0,len(states)):
-                self.containerAgent1.remember((states[i],actions[i],rewards[i],next_state,False))
+                self.containerAgent1.remember((states[i],actions[i],rewards[i],next_states[i],False))
         else:
             for i in range(0,len(states)):
-                self.containerAgent2.remember((states[i],actions[i],rewards[i],next_state,False))
+                self.containerAgent2.remember((states[i],actions[i],rewards[i],next_states[i],False))
 
     def replay(self,batch_size):
         self.servAgent.replay(batch_size)

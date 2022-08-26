@@ -717,6 +717,47 @@ def serverTaskAgentReward(serverExists,correctRegion):
         f.close()
         return (utilAverageMultiplier * (1 + utilAverageDiff) * reward)
 
+def scheduleReward1(choices,servNames,servObjs,region):
+    rewards = []
+    mFile = os.path.join(path_to_script, "AILOGS/schedreward1.txt")
+    f = open(mFile,"a")
+
+    for i in range(0,len(choices)):
+        rewards.append(0)
+        if(choices[i] == 1 and region == servObjs[i]["region"]):
+            rewards[i] = 1
+        elif(choices[i] == 0 and region != servObjs[i]["region"]):
+            rewards[i] = 1
+
+        f.write("server: " + str(servNames[i])+ ",serverRegion: " + str(servObjs[i]["region"]) + ",Region: " + str(region) + "\n")
+
+    return rewards
+
+def scheduleReward2(choices,conObjects,mtype):
+    rewards = []
+    mFile = os.path.join(path_to_script, "AILOGS/schedreward2.txt")
+    f = open(mFile,"a")
+
+    for i in range(0,len(choices)):
+        rewards.append(0)
+        if(choices[i] == 1 and conObjects[i]["conType"] == mtype):
+            rewards[i] = 1
+        elif(choices[i] == 0 and conObjects[i]["conType"] != mtype):
+            rewards[i] = 1
+
+    return rewards
+
+def scheduleReward3(nextStateDimList):
+    reward = 0
+    memUtil = []
+    cpuUtil = []
+    for i in range(0,len(nextStateDimList))
+        memUtil.append(nextStateDimList[i][17])
+        cpuUtil.append(nextStateDimList[i][18])
+
+    memUtilDiff = averageDif(memUtil)
+    cpuUtilDiff = averageDif(cpuUtil)
+    
 
 def reward1(secondPassed):
     mFile = os.path.join(path_to_script, "AILOGS/reward1.txt")
@@ -878,7 +919,7 @@ def zeroEncodeAgentTime(cmdVals):
     #agentLearn()
     #print("%s\n",cmdVals)
 
-def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
+def scheduleNetTime(cmdVals,static_size,l1_size,l2_size):
     global execlock #how to access global var
     global orchlock
     global execGet
@@ -891,32 +932,90 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
     servs = getServers()
     layer1List = []
     servNames = []
+    servObjs = []
 
     for serv,servObj in servs.items():
         s = {}
         s[serv] = servObj
-        state = np.zeros(l1_size) #l1_size should be 12 + 16, maybe more globals for the size
+        state = np.zeros(static_size + l1_size) #l1_size should be 12 + 16, maybe more globals for the size
 
         scheduleLayer1Info(state,cmdVals,s)
 
         layer1List.append(state)
         servNames.append(serv)
+        servObjs.append(servObj)
 
     choices1,sChoice = scheduleAgent.act1(layer1List,servNames) # retrieve output from this and convert into containers. Also remember it
 
     cons = getContainers({"s" + str(sChoice):0})["s" + str(sChoice)]
 
     layer2List = []
+    conObjs = []
     for con,conObj in cons.items():
-        state2 = np.zeros(l2_size)
+        state2 = np.zeros(static_size + l2_size)
         scheduleLayer2Info(state2,cmdVals,con,conObj)
+        conObjs.append(conObj)
 
         layer2List.append(state2)
 
-    choices2,chosenCons = scheduleAgent.act2(layer2List)
+    choices2,chosenCons,chosenConObjs,chosenConNames = scheduleAgent.act2(layer2List,conObjs)
 
-    choices3,chosenCon = scheduleAgent.act3(chosenCons,cons)
-    #todo make agents remember
+    choices3,chosenCon = scheduleAgent.act3(chosenCons)
+
+    conInfo = decodeObj(r.hgetall(f"{chosenCon}"))
+    conPort = conInfo['conPort']
+    conType = conInfo['conType']
+
+    taskString = dictToTcpString(cmdVals)
+    with execlock:
+        print(f"AGENT 1: cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{"s" + str(sChoice)},con:{chosenCon},buff:buff")
+        execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{"s" + str(sChoice)},con:{chosenCon},buff:buff".encode()) #problem is here, doesn't completely send
+        while not execGet:
+            pass
+        execGet = False
+
+        servs2 = getServers()
+        servsNextState = []
+        for serv,servObj in servs2.items():
+            s2 = {}
+            s2[serv] = servObj
+            state = np.zeros(l1_size) #l1_size should be 12 + 16, maybe more globals for the size
+
+            scheduleLayer1Info(state,cmdVals,s)
+
+            servsNextState.append(state)
+        #get consNextState
+        #todo send decision to executor
+
+
+        cons2 = getContainers({"s" + str(sChoice):0})["s" + str(sChoice)]
+        consNextState = []
+        chosenConsNextState = []
+        for con,conObj in cons2.items():
+            state2 = np.zeros(l2_size)
+            scheduleLayer2Info(state2,cmdVals,con,conObj)
+            conObjs.append(conObj)
+
+            if(state2[12] in chosenConNames):
+                chosenConsNextState.append(state2)
+
+            consNextState.append(state2)
+    
+        #you need a cons next state for layer3
+
+        rewards1 = scheduleReward1(choices1,servNames,servObjs,cmdVals['region'])
+        scheduleAgent.remember(1,layer1List,choices1,rewards1,servsNextState)
+
+        rewards2 = scheduleReward2(choices2,conObjs,cmdVals['type'])
+        scheduleAgent.remember(2,layer2List,choices2,rewards2,consNextState)
+
+        reward3 = scheduleReward3(consNextState)
+        scheduleAgent.remember(3,chosenCons,choices3,rewards3,chosenConsNextState)
+
+        episodes3 += 1
+        if(episodes3 == 32):
+            episodes3 = 0
+            scheduleAgent.replay(32)
 
 
 def handleInput(dat):
@@ -936,7 +1035,8 @@ def handleInput(dat):
     if len(cmdVals) == 0:
         print("Empty cmdVals instance py\n")
     elif  cmdVals['cmd'] == "stask":
-        zeroEncodeAgentTime(cmdVals)
+        #zeroEncodeAgentTime(cmdVals)
+        scheduleNetTime(cmdVals,12,16,7):
     elif  cmdVals['cmd'] == "connect":
         with orchlock:
             orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff\r\n')
