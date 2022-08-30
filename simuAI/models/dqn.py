@@ -48,7 +48,10 @@ class DQNAgent(nn.Module):
 
     def actSurrogate(self,state):
         if np.random.rand() <= self.epsilon:  #the bigger epsilon is, the more likely exploration is
-            return random.randrange(self.action_size)
+            resBox = []
+            resBox.append(random.randrange(self.action_size))
+            return 0,resBox
+            #return random.randrange(self.action_size)
         act_values = self.forward(state)
         return np.argmax(act_values[0].detach().numpy()),act_values[0]
 
