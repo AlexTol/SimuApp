@@ -1,0 +1,70 @@
+def scheduleLayer1Info(state,cmdVals,servTuple):
+    index = 0
+    tcpu = 1
+    tmem = .5 if (cmdVals['type'] == "A") else 1
+
+    typeArr = typeToArrRep(cmdVals['type'])
+    for rep in typeArr:
+        state[index] = rep
+        index += 1
+
+    state[index] = tcpu
+    index += 1
+    state[index] = tmem
+    index += 1
+
+    regionArr = regionToArrRep(cmdVals['region'])
+    for rep in regionArr:
+        state[index] = rep
+        index += 1
+
+    servInfo = getServerInfo(servTuple)
+    for key,val in servInfo.items():
+        state[index] = val
+        index += 1
+
+    servObj = list(servTuple.values())[0]
+    regionVals = regionToArrRep(servObj["region"])
+    for i in range (0,6):
+        state[index] = regionVals[i]
+        index += 1
+
+def scheduleLayer2Info(state,cmdVals,con,cObj):
+    index = 0
+    tcpu = 1
+    tmem = .5 if (cmdVals['type'] == "A") else 1
+
+    typeArr = typeToArrRep(cmdVals['type'])
+    for rep in typeArr:
+        state[index] = rep
+        index += 1
+
+    state[index] = tcpu
+    index += 1
+    state[index] = tmem
+    index += 1
+
+    regionArr = regionToArrRep(cmdVals['region'])
+    for rep in regionArr:
+        state[index] = rep
+        index += 1
+
+    state[index] = conNameToNum(con)
+    index += 1
+
+    state[index] = 1 if(cObj["conType"] == "A") else 0
+    index += 1
+    state[index] = 1 if(cObj["conType"] == "B") else 0
+    index += 1
+    state[index] = 1 if(cObj["conType"] == "C") else 0
+    index += 1
+    state[index] = 1 if(cObj["conType"] == "D") else 0
+    index += 1
+
+    state[index] = getConUtil(cObj["conPort"],"MEM")
+    index += 1
+    state[index] = getConUtil(cObj["conPort"],"CPU")
+    index += 1
+
+
+Layer3 was basically just the chosenCons from layer2

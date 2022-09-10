@@ -19,14 +19,14 @@ class DQNAgent(nn.Module):
         self.gamma = 0.95 #discount factor how much to discount future reward, near future is easier to guess than distant future
 
         self.epsilon = 1.0 # exploration rate for agent. The agent will look for new decisions and not rely on old proven decisions.
-        self.epsilon_decay = 0.995 #even though we want the agent to explore, we still want it to rely on proven methods over time
+        self.epsilon_decay = 0.9 #even though we want the agent to explore, we still want it to rely on proven methods over time, original .995
         self.epsilon_min = 0.01 # even as epsilon decays, we still want it to explore from time to time
 
-        self.learning_rate = 0.001 # step size of stochastic grad descent
+        self.learning_rate = 0.001 # step size of stochastic grad descent, original 0.001
 
-        self.layer1 = nn.Linear(self.state_size, self.state_size)
-        self.layer2 = nn.Linear(self.state_size, self.state_size)
-        self.layer3 = nn.Linear(self.state_size, self.action_size)
+        self.layer1 = nn.Linear(self.state_size, 256)
+        self.layer2 = nn.Linear(256, 256)
+        self.layer3 = nn.Linear(256, self.action_size)
 
         self.logfile = logFile
 
@@ -40,39 +40,48 @@ class DQNAgent(nn.Module):
         self.memory.append((state,action,reward,next_state,done))
 
     def forward(self, state):
-        x = F.relu(self.layer1(T.from_numpy(state).float()))
-        x = F.relu(self.layer2(x))
+        x = T.tanh(self.layer1(T.from_numpy(state).float()))
+        x = T.tanh(self.layer2(x))
         actions = self.layer3(x)
 
         return actions
 
     def actSurrogate(self,state):
         if np.random.rand() <= self.epsilon:  #the bigger epsilon is, the more likely exploration is
-            resBox = []
-            resBox.append(random.randrange(self.action_size))
-            return 0,resBox
+            res = (random.randrange(self.action_size))
+            return -1,res
             #return random.randrange(self.action_size)
         act_values = self.forward(state)
-        return np.argmax(act_values[0].detach().numpy()),act_values[0]
+        maxIndex = np.argmax(act_values.detach().numpy())
+        return maxIndex ,act_values
 
     def act(self,state): #figuring out what action to take given a state
         if np.random.rand() <= self.epsilon:  #the bigger epsilon is, the more likely exploration is
             return random.randrange(self.action_size)
         act_values = self.forward(state)
-        return np.argmax(act_values[0].detach().numpy())
+        return np.argmax(act_values.detach().numpy())
 
-    def replay(self,batch_size):
+    def replay(self,batch_size,log=False):
+        self.optimizer.zero_grad()
         minibatch = random.sample(self.memory,batch_size) #randomly sample memories
+        f2 = open(self.logfile + "DEBUG.txt","a")
 
         for state,action,reward,next_state,done in minibatch:
-            q_eval = self.forward(state)[action]
+            #self.optimizer.zero_grad()
+            q_current = self.forward(state)
+            q_eval = q_current[action]
             q_next = self.forward(next_state)
-            q_target = reward + (self.gamma * T.max(q_next, dim=0)[0])
+            q_target = reward + (self.gamma * T.max(q_next, dim=0)[0]) #original dim=0
+
+            #q_target = reward + (self.gamma * T.max(q_next, dim=0)[0])
             
-            
-            loss = self.loss(q_target, q_eval)  #calculate loss and fit the model
+            loss = self.loss(q_eval,q_target)  #calculate loss and fit the model
             loss.backward()
             self.optimizer.step()
+
+            if(log):
+                f2.write("replay  state: " + str(state) + " ,action: " + str(action) + " ,reward: " + str(reward) + " ,next_state: " + str(next_state) + "\n" +
+                 " ,q_current: " + str(q_current) + " ,q_eval: " + str(q_eval) + " ,q_next: " + str(q_next) + " ,q_target: " + str(q_target) + "\n")
 
             if(self.logfile):
                 #print("log path!")
@@ -83,6 +92,7 @@ class DQNAgent(nn.Module):
                 f.write(str(loss.item())+"\n")
                 f.close()
 
+        f2.close()
         if self.epsilon > self.epsilon_min:
             self.epsilon = self.epsilon * self.epsilon_decay
 

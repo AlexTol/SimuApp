@@ -368,6 +368,30 @@ def regionToArrRep(region):
     else:
         return [0,0,0,0,0,1]
 
+def typeToIntRep(mtype):
+    if mtype == "A":
+        return 1
+    elif mtype == "B":
+        return 2
+    elif mtype == "C":
+        return 3
+    else:
+        return 4
+
+def regionToIntRep(region):
+    if region == "NA":
+        return 1
+    elif region == "SA":
+        return 2
+    elif region == "EU":
+        return 3
+    elif region == "AS":
+        return 4
+    elif region == "AF":
+        return 5
+    else:
+        return 6
+
 def getServerSenderInfo(state,cmdVals):
     index = 0
     tcpu = 1
@@ -408,73 +432,68 @@ def getServerSenderInfo(state,cmdVals):
 
 def scheduleLayer1Info(state,cmdVals,servTuple):
     index = 0
-    tcpu = 1
-    tmem = .5 if (cmdVals['type'] == "A") else 1
-
-    typeArr = typeToArrRep(cmdVals['type'])
-    for rep in typeArr:
-        state[index] = rep
-        index += 1
-
-    state[index] = tcpu
-    index += 1
-    state[index] = tmem
+    state[index] = 0
     index += 1
 
-    regionArr = regionToArrRep(cmdVals['region'])
-    for rep in regionArr:
-        state[index] = rep
-        index += 1
-
-    servInfo = getServerInfo(servTuple)
-    for key,val in servInfo.items():
-        state[index] = val
-        index += 1
+    tRegionVal = regionToIntRep(cmdVals['region'])
+    state[index] = tRegionVal
+    index += 1
 
     servObj = list(servTuple.values())[0]
-    regionVals = regionToArrRep(servObj["region"])
-    for i in range (0,6):
-        state[index] = regionVals[i]
-        index += 1
+    sRegionVal = regionToIntRep(servObj["region"])
+    state[index] = sRegionVal
+    index += 1
+
 
 def scheduleLayer2Info(state,cmdVals,con,cObj):
     index = 0
-    tcpu = 1
-    tmem = .5 if (cmdVals['type'] == "A") else 1
+    #state[index] = 0
+    #index += 1
 
-    typeArr = typeToArrRep(cmdVals['type'])
-    for rep in typeArr:
-        state[index] = rep
+    #tType = typeToIntRep(cmdVals['type'])
+    #state[index] = tType
+    #index += 1
+    tTypeReps = typeToArrRep(cmdVals['type'])
+    for i in range(0,len(tTypeReps)):
+        state[index] = tTypeReps[i]
         index += 1
 
-    state[index] = tcpu
-    index += 1
-    state[index] = tmem
-    index += 1
-
-    regionArr = regionToArrRep(cmdVals['region'])
-    for rep in regionArr:
-        state[index] = rep
+    #cType = typeToIntRep(cObj["conType"])
+    #state[index] = cType
+    #index += 1
+    cTypeReps = typeToArrRep(cObj["conType"])
+    for i in range(0,len(cTypeReps)):
+        state[index] = cTypeReps[i]
         index += 1
 
-    state[index] = conNameToNum(con)
+def scheduleLayer3Info(state,chosenConObj,sCons):
+    index = 0
+    state[index] = getConUtil(chosenConObj["conPort"],"CPU")
     index += 1
 
-    state[index] = 1 if(cObj["conType"] == "A") else 0
-    index += 1
-    state[index] = 1 if(cObj["conType"] == "B") else 0
-    index += 1
-    state[index] = 1 if(cObj["conType"] == "C") else 0
-    index += 1
-    state[index] = 1 if(cObj["conType"] == "D") else 0
+    typeUtilCPU = []
+    for cName,cObj in sCons.items():
+        if(cObj["conType"] == chosenConObj["conType"]):
+            typeUtilCPU.append(getConUtil(cObj["conPort"],"CPU"))
+    typeUtilCPUDiff = averageDif(typeUtilCPU)
+    state[index] = typeUtilCPUDiff
+    index +=1
+
+    state[index] = getConUtil(chosenConObj["conPort"],"MEM")
     index += 1
 
-    state[index] = getConUtil(cObj["conPort"],"MEM")
-    index += 1
-    state[index] = getConUtil(cObj["conPort"],"CPU")
-    index += 1
+    typeUtilMEM = []
+    for cName,cObj in sCons.items():
+        if(cObj["conType"] == chosenConObj["conType"]):
+            typeUtilMEM.append(getConUtil(cObj["conPort"],"MEM"))
+    typeUtilMEMDiff = averageDif(typeUtilMEM)
+    state[index] = typeUtilMEMDiff
+    index +=1
+
+
+
         
-def getContainerSenderInfo(state,cmdVals,schoice): #todo finish this, don't forget to change the server image to have the .ts changes you made
+def getContainerSenderInfo(state,cmdVals,schoice):
     index = 0
 
     if(schoice == 0):
@@ -610,6 +629,8 @@ def averageDif(mlist): #credit for simpler way https://stackoverflow.com/questio
         for j, f in enumerate(mlist):
             if i != j: diffs.append(abs(e-f))
 
+    if(len(diffs) == 0):
+        return 0
     return sum(diffs)/len(diffs)
 
 
@@ -720,56 +741,63 @@ def serverTaskAgentReward(serverExists,correctRegion):
 
 def scheduleReward1(choices,servNames,servObjs,region):
     rewards = []
+    properlyProvisioned = {}
     mFile = os.path.join(path_to_script, "AILOGS/schedreward1.txt")
     f = open(mFile,"a")
 
     for i in range(0,len(choices)):
         rewards.append(0)
+        properlyProvisioned[servNames[i]] = 0
         if(choices[i] == 1 and region == servObjs[i]["region"]):
-            rewards[i] = 1
+            rewards[i] = 10
+            properlyProvisioned[servNames[i]] = 1
         elif(choices[i] == 0 and region != servObjs[i]["region"]):
             rewards[i] = 1
 
-        f.write("server: " + str(servNames[i])+ ",serverRegion: " + str(servObjs[i]["region"]) + ",Region: " + str(region) + ",Reward: " + 
+        f.write("choice: " + str(choices[i]) + " ,server: " + str(servNames[i])+ ",serverRegion: " + str(servObjs[i]["region"]) + ",Region: " + str(region) + ",Reward: " + 
         str(rewards[i])  + "\n")
 
     f.close()
-    return rewards
+    return rewards,properlyProvisioned
 
-def scheduleReward2(choices,conNames,conObjects,mtype):
+def scheduleReward2(choices,conNames,conObjects,mtype,correctlyChosen):
     rewards = []
+    properlyProvisioned = {}
     mFile = os.path.join(path_to_script, "AILOGS/schedreward2.txt")
     f = open(mFile,"a")
 
+    maxReward = len(conNames) * 2
+    denominator = (len(conNames) - 1)
+    if(denominator == 0):
+        denominator = 1
+    minReward = (maxReward  * .75)/denominator
+    reference = maxReward
+
     for i in range(0,len(choices)):
         rewards.append(0)
+        #properlyProvisioned[conNames[i]] = 0
         if(choices[i] == 1 and conObjects[i]["conType"] == mtype):
-            rewards[i] = 1
+            rewards[i] = maxReward
+        #    properlyProvisioned[conNames[i]] = 1
         elif(choices[i] == 0 and conObjects[i]["conType"] != mtype):
-            rewards[i] = 1
+            rewards[i] = minReward
+         #   properlyProvisioned[conNames[i]] = 1
 
         f.write("con: " + str(conNames[i]) + " ,choice: " + str(choices[i]) + " ,conType: " + str(conObjects[i]["conType"]) 
-        + " ,taskType: " + str(mtype) + " ,reward: " + str(rewards[i]) + "\n")
+        + " ,taskType: " + str(mtype) + " ,reward: " + str(rewards[i]) + " ,correctlyChosen: " + str(correctlyChosen) + "\n")
 
     f.close()
-    return rewards
+    return rewards,properlyProvisioned
 
-def scheduleReward3(nextStateDimList,conNames):
+def scheduleReward3(chosenConState,chosenConName):
     reward = 0
     mFile = os.path.join(path_to_script, "AILOGS/schedreward3.txt")
     f = open(mFile,"a")
-    memUtil = []
-    cpuUtil = []
-    for i in range(0,len(nextStateDimList)):
-        memUtil.append(nextStateDimList[i][17])
-        cpuUtil.append(nextStateDimList[i][18])
 
-    memUtilDiff = averageDif(memUtil)
-    cpuUtilDiff = averageDif(cpuUtil)
 
-    conStr = ""
-    for con in conNames:
-        conStr += con + ","
+    memUtilDiff = chosenConState[3]
+    cpuUtilDiff = chosenConState[1]
+
 
     if memUtilDiff <= .1:
         reward += 1
@@ -789,7 +817,7 @@ def scheduleReward3(nextStateDimList,conNames):
     else:
         reward += 0
 
-    f.write("Cons: " + conStr + " ,memUtilDiff: " + str(memUtilDiff) + " ,cpuUtilDiff: " + str(cpuUtilDiff) + " ,reward: " + str(reward) + "\n")
+    f.write("ChosenCon: " + chosenConName + " ,memDiff: " + str(memUtilDiff) + " ,cpuDiff: " + str(cpuUtilDiff) + " ,reward: " + str(reward) + "\n" ) #finish this log also remember to figure out the state[0] = 1 where we only want to do that if a good result was had
     f.close()
 
     return reward
@@ -955,7 +983,7 @@ def zeroEncodeAgentTime(cmdVals):
     #agentLearn()
     #print("%s\n",cmdVals)
 
-def scheduleNetTime(cmdVals,static_size,l1_size,l2_size):
+def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
     global execlock #how to access global var
     global orchlock
     global execGet
@@ -978,7 +1006,7 @@ def scheduleNetTime(cmdVals,static_size,l1_size,l2_size):
     for serv,servObj in servs.items():
         s = {}
         s[serv] = servObj
-        state = np.zeros(static_size + l1_size) #l1_size should be 12 + 16, maybe more globals for the size
+        state = np.zeros(l1_size) #l1_size should be 12 + 16, maybe more globals for the size
 
         scheduleLayer1Info(state,cmdVals,s)
 
@@ -994,81 +1022,112 @@ def scheduleNetTime(cmdVals,static_size,l1_size,l2_size):
     layer2List = []
     conObjs = []
     conNames = []
+    #j = 0
     for con,conObj in cons.items():
-        state2 = np.zeros(static_size + l2_size)
+        state2 = np.zeros(l2_size)
         scheduleLayer2Info(state2,cmdVals,con,conObj)
         conObjs.append(conObj)
         conNames.append(con)
-
+        #print("ConObj: " + str(conObj) + " ,state2: " + str(state2) + " ,index: " + str(j))
         layer2List.append(state2)
+        #j += 1
 
+    #print("layer2list 1 : " + str(layer2List))
     #print(layer2List)
     choices2,chosenCons,chosenConObjs,chosenConNames = scheduleAgent.act2(layer2List,conObjs,conNames)
     #print(chosenCons)
-    choices3,chosenCon = scheduleAgent.act3(chosenCons)
 
-    chosenConStr = "c" + str(int(chosenCon))
+    layer3List = []
+    for i in range(0,len(chosenConObjs)):
+        state3 = np.zeros(l3_size)
+        scheduleLayer3Info(state3,chosenConObjs[i],cons)
+        layer3List.append(state3)
+
+    choices3,chosenCon = scheduleAgent.act3(layer3List,chosenConNames)
+
+    #chosenConStr = "c" + str(int(chosenCon))
     #print(chosenConStr)
-    conInfo = decodeObj(r.hgetall(f"{chosenConStr}"))
+    conInfo = decodeObj(r.hgetall(f"{chosenCon}"))
     #print(conInfo)
     conPort = conInfo['conPort']
     conType = conInfo['conType']
 
+    #todo change the next states so that the provisioned correctly dim is set to 1
     taskString = dictToTcpString(cmdVals)
     with execlock:
         serverNum = sChoice.split("s")[1] #just use a number when specifying the server
-        print(f"AGENT 1: cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{serverNum},con:{str(int(chosenCon))},buff:buff")
-        execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{serverNum},con:{str(int(chosenCon))},buff:buff".encode()) #problem is here, doesn't completely send
+        conNum = chosenCon.split("c")[1]
+        print(f"AGENT 1: cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{serverNum},con:{conNum},buff:buff")
+        execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{serverNum},con:{conNum},buff:buff".encode()) #problem is here, doesn't completely send
         while not execGet:
             pass
         execGet = False
 
+        rewards1,properlyProvisioned = scheduleReward1(choices1,servNames,servObjs,cmdVals['region'])
         servs2 = getServers()
         servsNextState = []
         for serv,servObj in servs2.items():
             s2 = {}
             s2[serv] = servObj
-            state2 = np.zeros(static_size + l1_size) #l1_size should be 12 + 16, maybe more globals for the size
+            state = np.zeros(l1_size) #l1_size should be 12 + 16, maybe more globals for the size
 
-            scheduleLayer1Info(state2,cmdVals,s)
-
-            servsNextState.append(state2)
+            scheduleLayer1Info(state,cmdVals,s)
+            state[0] = properlyProvisioned[serv]
+            servsNextState.append(state)
         #get consNextState
         #todo send decision to executor
+        correctlyChosen = False
+        for i in range(0,len(choices2)):
+            if(choices2[i] == 1 and (conObjs[i]["conType"]) == cmdVals['type']):
+                correctlyChosen = True
+            elif(choices2[i] == 1 and (conObjs[i]["conType"]) != cmdVals['type']):
+                correctlyChosen = False
+                break
 
-
+        rewards2,properlyProvisioned = scheduleReward2(choices2,conNames,conObjs,cmdVals['type'],correctlyChosen)
         cons2 = getContainers({str(sChoice):0})[str(sChoice)]
         consNextState = []
-        chosenConsNextState = []
+        chosenConNextState = ""
         #chosenConObjs = []
         #chosenConNames = []
         for con,conObj in cons2.items():
-            state2 = np.zeros(static_size + l2_size)
+            state2 = np.zeros(l2_size)
             scheduleLayer2Info(state2,cmdVals,con,conObj)
+            #state2[0] = properlyProvisioned[con]
 
-            if(("c" + str(int(state2[12]))) in chosenConNames):
-                chosenConsNextState.append(state2)
-                #chosenConNames.append(con)
+            if(con == chosenCon):
+                state3 = np.zeros(l3_size)
+                chosenConObj = conObj
+                #chosenConObjs.append(chosenConObj)
+                scheduleLayer3Info(state3,chosenConObj,cons2)
+                chosenConNextState = state3 
+            
             consNextState.append(state2)
+
+        chosenConsNextState = []
+        for i in range(0,len(chosenConObjs)):
+            state3 = np.zeros(l3_size)
+            scheduleLayer3Info(state3,chosenConObjs[i],cons2)
+            chosenConsNextState.append(state3)
     
 
-        rewards1 = scheduleReward1(choices1,servNames,servObjs,cmdVals['region'])
+        #rewards1 = scheduleReward1(choices1,servNames,servObjs,cmdVals['region'])
         scheduleAgent.remember(1,layer1List,choices1,rewards1,servsNextState)
 
-        rewards2 = scheduleReward2(choices2,conNames,conObjs,cmdVals['type'])
+        #rewards2 = scheduleReward2(choices2,conNames,conObjs,cmdVals['type'])
         scheduleAgent.remember(2,layer2List,choices2,rewards2,consNextState)
 
-        reward3 = scheduleReward3(consNextState,chosenConNames)
+        reward3 = scheduleReward3(chosenConNextState,chosenCon)
         rewards3 = []
-        for i in range(0,len(consNextState)):
+        for i in range(0,len(chosenCons)):
             rewards3.append(reward3)
 
-        scheduleAgent.remember(3,chosenCons,choices3,rewards3,chosenConsNextState)
+        scheduleAgent.remember(3,layer3List,choices3,rewards3,chosenConsNextState) #todo look into reforming this
 
         episodes3 += 1
-        if(episodes3 == 32):
+        if(episodes3 == 10):
             episodes3 = 0
-            scheduleAgent.replay(32)
+            scheduleAgent.replay(10)
 
 
 def handleInput(dat):
@@ -1089,7 +1148,7 @@ def handleInput(dat):
         print("Empty cmdVals instance py\n")
     elif  cmdVals['cmd'] == "stask":
         #zeroEncodeAgentTime(cmdVals)
-        scheduleNetTime(cmdVals,12,16,7)
+        scheduleNetTime(cmdVals,3,8,4)
     elif  cmdVals['cmd'] == "connect":
         with orchlock:
             orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff\r\n')
@@ -1202,7 +1261,7 @@ episodes3 = 0
 mFile3 = os.path.join(path_to_script, "AILOGS/sched1_loss.txt")
 mFile4 = os.path.join(path_to_script, "AILOGS/sched2_loss.txt")
 mFile5 = os.path.join(path_to_script, "AILOGS/sched3_loss.txt")
-scheduleAgent = ScheduleNet(12,16,7,7,mFile3,mFile4,mFile5) #the dims for servs and cons are -1 since we no longer need exists
+scheduleAgent = ScheduleNet(3,8,4,mFile3,mFile4,mFile5) #the dims for servs and cons are -1 since we no longer need exists
 
 
 mt = threading.Thread(target=runServer,args=())
