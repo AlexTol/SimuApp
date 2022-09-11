@@ -432,17 +432,19 @@ def getServerSenderInfo(state,cmdVals):
 
 def scheduleLayer1Info(state,cmdVals,servTuple):
     index = 0
-    state[index] = 0
-    index += 1
+    #state[index] = 0
+    #index += 1
 
-    tRegionVal = regionToIntRep(cmdVals['region'])
-    state[index] = tRegionVal
-    index += 1
+    tRegionVal = regionToArrRep(cmdVals['region'])
+    for i in range(0,len(tRegionVal)):
+        state[index] = tRegionVal[i]
+        index += 1
 
     servObj = list(servTuple.values())[0]
-    sRegionVal = regionToIntRep(servObj["region"])
-    state[index] = sRegionVal
-    index += 1
+    sRegionVal = regionToArrRep(servObj["region"])
+    for i in range(0,len(sRegionVal)):
+        state[index] = sRegionVal[i]
+        index += 1
 
 
 def scheduleLayer2Info(state,cmdVals,con,cObj):
@@ -770,8 +772,7 @@ def scheduleReward2(choices,conNames,conObjects,mtype,correctlyChosen):
     denominator = (len(conNames) - 1)
     if(denominator == 0):
         denominator = 1
-    minReward = (maxReward  * .75)/denominator
-    reference = maxReward
+    minReward = (maxReward  * .6)/denominator
 
     for i in range(0,len(choices)):
         rewards.append(0)
@@ -1072,7 +1073,7 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
             state = np.zeros(l1_size) #l1_size should be 12 + 16, maybe more globals for the size
 
             scheduleLayer1Info(state,cmdVals,s)
-            state[0] = properlyProvisioned[serv]
+            #state[0] = properlyProvisioned[serv]
             servsNextState.append(state)
         #get consNextState
         #todo send decision to executor
@@ -1148,7 +1149,7 @@ def handleInput(dat):
         print("Empty cmdVals instance py\n")
     elif  cmdVals['cmd'] == "stask":
         #zeroEncodeAgentTime(cmdVals)
-        scheduleNetTime(cmdVals,3,8,4)
+        scheduleNetTime(cmdVals,12,8,4)
     elif  cmdVals['cmd'] == "connect":
         with orchlock:
             orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff\r\n')
@@ -1261,7 +1262,7 @@ episodes3 = 0
 mFile3 = os.path.join(path_to_script, "AILOGS/sched1_loss.txt")
 mFile4 = os.path.join(path_to_script, "AILOGS/sched2_loss.txt")
 mFile5 = os.path.join(path_to_script, "AILOGS/sched3_loss.txt")
-scheduleAgent = ScheduleNet(3,8,4,mFile3,mFile4,mFile5) #the dims for servs and cons are -1 since we no longer need exists
+scheduleAgent = ScheduleNet(12,8,4,mFile3,mFile4,mFile5) #the dims for servs and cons are -1 since we no longer need exists
 
 
 mt = threading.Thread(target=runServer,args=())

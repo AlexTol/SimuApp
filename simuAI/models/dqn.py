@@ -25,8 +25,11 @@ class DQNAgent(nn.Module):
         self.learning_rate = 0.001 # step size of stochastic grad descent, original 0.001
 
         self.layer1 = nn.Linear(self.state_size, 256)
+        self.layer1.weight.data.fill_(0)
         self.layer2 = nn.Linear(256, 256)
+        self.layer2.weight.data.fill_(0)
         self.layer3 = nn.Linear(256, self.action_size)
+        self.layer3.weight.data.fill_(0)
 
         self.logfile = logFile
 
@@ -62,12 +65,12 @@ class DQNAgent(nn.Module):
         return np.argmax(act_values.detach().numpy())
 
     def replay(self,batch_size,log=False):
-        self.optimizer.zero_grad()
+        #self.optimizer.zero_grad() you had this for the winning run
         minibatch = random.sample(self.memory,batch_size) #randomly sample memories
         f2 = open(self.logfile + "DEBUG.txt","a")
 
         for state,action,reward,next_state,done in minibatch:
-            #self.optimizer.zero_grad()
+            self.optimizer.zero_grad()
             q_current = self.forward(state)
             q_eval = q_current[action]
             q_next = self.forward(next_state)

@@ -107,6 +107,6 @@ class ScheduleNet(nn.Module):
                 self.containerAgent2.remember(states[i],actions[i],rewards[i],next_states[i],False)
 
     def replay(self,batch_size):
-        self.servAgent.replay(10)
+        self.servAgent.replay(10,True)
         self.containerAgent1.replay(10,True)
         self.containerAgent2.replay(10)
