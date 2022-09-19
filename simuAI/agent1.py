@@ -129,6 +129,14 @@ def processInput(dat):
             cmdVals[token[0]] = token[1]
     return cmdVals
 
+def getTimedOutCount(taskDat,servNum):
+    count = 0
+    for req,obj in taskDat.items():
+        if(obj["timeout"] == "1" and obj["server"] == servNum):
+            count += 1
+
+    return count
+
 def calcReqProfit(taskDat):
     global Complete
     global Slow
@@ -493,7 +501,40 @@ def scheduleLayer3Info(state,chosenConObj,sCons):
     index +=1
 
 
+def getContainerProvisionerInfo(state,serv,sObj):
+        taskDat = getTaskData()
+        info = getServerInfo({serv:sObj})
+        sNum = servNameToNum(serv)
+        timeouts = getTimedOutCount(taskDat,sNum)
 
+        state[0] =  info['totalCPUUtilA'] 
+        state[1] =  info['totalCPUUtilB'] 
+        state[2] =  info['totalCPUUtilC'] 
+        state[3] =  info['totalCPUUtilD'] 
+        state[4] = info['totalMEMUtilA']
+        state[5] = info['totalMEMUtilB']
+        state[6] = info['totalMEMUtilC']
+        state[7] = info['totalMEMUtilD']
+
+        state[8] = 0
+        state[9] = 0
+        state[10] = 0
+        state[11] = 0
+
+        servcons = getContainers({serv:sObj})
+
+        for serv,conTup in servcons.items():
+            for con,cObj in conTup.items():
+                if(cObj["conType"] == "A"):
+                    state[8] += 1
+                elif(cObj["conType"] == "B"):
+                    state[9] += 1
+                elif(cObj["conType"] == "C"):
+                    state[10] += 1
+                else:
+                    state[11] += 1
+
+        state[12] = timeouts
         
 def getContainerSenderInfo(state,cmdVals,schoice):
     index = 0
@@ -615,7 +656,8 @@ def agentLearn():
 
 def provisionerTime():
     while True:
-        time.sleep(1)
+        time.sleep(30)
+        conProvisioningTime(13)
         clearFinishedQueries()
 
 def agentTime():
@@ -740,6 +782,109 @@ def serverTaskAgentReward(serverExists,correctRegion):
         f.write(f"reward: {utilAverageMultiplier * (1 + utilAverageDiff) * reward}\n")
         f.close()
         return (utilAverageMultiplier * (1 + utilAverageDiff) * reward)
+
+def calcUtilPenalty(util):
+    if(util <= .1):
+        return 1
+    elif(util <= .3):
+        return .5
+    elif(util <= .6):
+        return .2
+    elif(util <= .75):
+        return .15
+    elif(util <= .8):
+        return .1
+    elif(util <= .95):
+        return 0
+    else:
+        return .3
+
+def conProvisionerReward(serv,sObj,poorDeprovision,timeouts):
+    if(poorDeprovision):
+        return 0
+
+    info = getServerInfo({serv:sObj})
+
+    memBase = 4
+    memBase = memBase - calcUtilPenalty(info['totalMEMUtilA']) - calcUtilPenalty(info['totalMEMUtilB']) - calcUtilPenalty(info['totalMEMUtilC']) - calcUtilPenalty(info['totalMEMUtilD'])
+
+    cpuBase = 4
+    cpuBase = cpuBase - calcUtilPenalty(info['totalCPUUtilA']) - calcUtilPenalty(info['totalCPUUtilB']) - calcUtilPenalty(info['totalCPUUtilC']) - calcUtilPenalty(info['totalCPUUtilD'])
+    #info['totalCPUUtilA']
+
+    timeoutPenalty = 0
+    if(timeouts <= 5):
+        timeoutPenalty = 1
+    elif(timeouts <= 10):
+        timeoutPenalty = 2
+    elif(timeouts <= 20):
+        timeoutPenalty = 4
+    else:
+        timeoutPenalty = 8
+
+    return memBase + cpuBase - timeoutPenalty
+
+def getConOfLowestUtilType(serv,type):
+    #todo figure this out
+    topUtil = -1
+    topCon = "blah"
+    #getConUtil(chosenConObj["conPort"],"CPU")
+    cons = getContainers({serv:0})[serv]
+    for con,cObj in cons.items():
+        if(cObj["conType"] != type):
+            continue
+
+        cpuUtil = getConUtil(cObj["conPort"],"CPU")
+        memUtil = getConUtil(cObj["conPort"],"MEM")
+        util = (cpuUtil + memUtil)/2
+        if(util > topUtil):
+            topCon = con
+
+    return topCon
+
+def execConProvChoice(choice,state,serv,sObj):
+    global execlock
+    global execSock
+    poorDeprovision = False
+    #cmd:createCon,servName:s1,servPort:8000,conName:c1,conPort:9000,conType:C,buff:buff
+    #cmd:deleteCon,servName:s1,servPort:8000,conName:c3,buff:buff
+    servPort = sObj["servPort"]
+
+    with execlock:
+        if(choice == 1):
+            cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:A,buff:buff"
+        elif(choice == 2):
+            cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:B,buff:buff"
+        elif(choice == 3):
+            cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:C,buff:buff"
+        elif(choice == 4):
+            cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:D,buff:buff"
+        elif(choice == 5):
+            if(state[8] == 1):
+                poorDeprovision = True
+            con = getConOfLowestUtilType(serv,"A")
+            cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},buff:buff"
+        elif(choice == 6):
+            if(state[9] == 1):
+                poorDeprovision = True
+            con = getConOfLowestUtilType(serv,"B")
+            cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},buff:buff"
+        elif(choice == 7):
+            if(state[10] == 1):
+                poorDeprovision = True
+            con = getConOfLowestUtilType(serv,"C")
+            cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},buff:buff"
+        elif(choice == 8):
+            if(state[11] == 1):
+                poorDeprovision = True
+            con = getConOfLowestUtilType(serv,"D")
+            cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},buff:buff"
+
+        if(not poorDeprovision):
+            execSock.sendall(cmd)
+
+    return poorDeprovision
+
 
 def scheduleReward1(choices,servNames,servObjs,region):
     rewards = []
@@ -1130,6 +1275,41 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
             episodes3 = 0
             scheduleAgent.replay(10)
 
+def conProvisioningTime(size): #todo complete, double check the parallelism on this too....
+    global episodes4
+    global conProvisioningAgent
+    global prevServStates 
+    global prevServActs
+    global prevServRewards
+    
+    servActs = {}
+    poorDeprovisions = {}
+    for serv,state in prevServStates.items():
+        choice = conProvisioningAgent.act(state)
+        servActs[serv] = choice
+        pDeprovision = execConProvChoice(choice,state)
+        poorDeprovision[serv] = pDeprovision
+
+    servStates = {}
+    servRewards = {}
+    servs = getServers()
+    for serv,sObj in servs.items():
+        state = np.zeros(size)
+
+        getContainerProvisionerInfo(state,serv,sObj)
+
+        servStates[serv] = state
+
+        reward = conProvisionerReward(serv,sObj,poorDeprovision[serv],state[12])
+        servRewards[serv] = reward
+        if(serv in prevServStates.keys() and prevServActs != "none"):
+            conProvisioningAgent.remember(prevServStates[serv],prevServActs[servs],prevServRewards[servs],state,False)
+
+    prevServActs = servActs
+    prevServStates = servStates
+    prevServRewards = servRewards
+
+
 
 def handleInput(dat):
     global execlock #how to access global var
@@ -1264,6 +1444,16 @@ mFile4 = os.path.join(path_to_script, "AILOGS/sched2_loss.txt")
 mFile5 = os.path.join(path_to_script, "AILOGS/sched3_loss.txt")
 scheduleAgent = ScheduleNet(12,8,4,mFile3,mFile4,mFile5) #the dims for servs and cons are -1 since we no longer need exists
 
+
+episodes4 = 0
+mFile6 = os.path.join(path_to_script, "AILOGS/conProv_loss.txt")
+conProvisioningAgent = DQNAgent(13,9,mFile6)  #A/B/C/D CPU/MEM util (x8),A/B/C/D con count (x4), timed out tasks(x1) 
+prevServStates = {}
+servs = getServers()
+for serv,sObj in servs.items():
+    prevServStates[serv] = np.zeros(9)
+prevServActs = "none" 
+prevServRewards = {}
 
 mt = threading.Thread(target=runServer,args=())
 mt.start()
