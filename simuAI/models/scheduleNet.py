@@ -51,7 +51,7 @@ class ScheduleNet(nn.Module):
             else:
                 choice = top_index
             choices.append(choice)
-            print("DIMLIST : " + str(containerTaskDimList[i]) + " ,conName: " + str(conNames[i]) + " ,CONOBJ: " + str(conObjs[i]) + " ,CHOICE : " + str(choice) + "\n")
+            #print("DIMLIST : " + str(containerTaskDimList[i]) + " ,conName: " + str(conNames[i]) + " ,CONOBJ: " + str(conObjs[i]) + " ,CHOICE : " + str(choice) + "\n")
             #print("CHOICE : " + str(choice) + "\n")
             if(choice == 1):
                 chosenCons.append(containerTaskDimList[i])
@@ -99,7 +99,7 @@ class ScheduleNet(nn.Module):
                 self.servAgent.remember(states[i],actions[i],rewards[i],next_states[i],False)
         elif(layer == 2):
             for i in range(0,len(states)):
-                print("state: " + str(states[i]) + " ,action: " + str(actions[i]) + " ,reward: " + str(rewards[i]) + " ,next_state: " + str(next_states[i]))
+                #print("state: " + str(states[i]) + " ,action: " + str(actions[i]) + " ,reward: " + str(rewards[i]) + " ,next_state: " + str(next_states[i]))
                 self.containerAgent1.remember(states[i],actions[i],rewards[i],next_states[i],False)
         else:
             for i in range(0,len(states)):
