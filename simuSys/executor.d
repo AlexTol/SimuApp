@@ -26,8 +26,17 @@ shared int[] freedPorts;
 shared int serverNum = 1;
 shared int containerNum = 1;
 shared int portNum = 7200;
+shared bool cAddGet = false;
+shared bool cDelGet = false;
 Socket[string] socks;
 
+void waitSignal(shared ref bool sig)
+{
+    while(!sig)
+    {
+
+    }
+}
 
 void refreshFreedEntities(Redis db)
 {
@@ -102,6 +111,7 @@ void spinUpContainer(Socket obsSock,string servName,int servPort,string conName,
     {
         noError = false;
         writefln("VM modification failed\n %s\n",cmd1);
+        writefln("%s\n",res1);
     }
 
     string cmd2 = format("ssh -o StrictHostKeyChecking=no 0.0.0.0 -p %s 'docker run --name %s -d -p %s:8000 app%s'",servPort,conName,containerPort,toLower(conType));
@@ -110,6 +120,7 @@ void spinUpContainer(Socket obsSock,string servName,int servPort,string conName,
     {
         noError = false;
         writefln("Container Creation failed\n %s\n",cmd2);
+        writefln("%s\n",res2);
     }
 
     if(noError)
@@ -124,7 +135,7 @@ void spinUpContainer(Socket obsSock,string servName,int servPort,string conName,
     }
 }
 
-void shutDownContainer(Redis db,Socket obsSock,string servName,int servPort,string conName)
+void shutDownContainer(Redis db,Socket obsSock,string servName,int servPort,string conName,int conCPU,int conMEM)
 {
     bool noError = true;
     
@@ -134,6 +145,7 @@ void shutDownContainer(Redis db,Socket obsSock,string servName,int servPort,stri
     {
         noError = false;
         writefln("Container shutdown failed\n %s\n",cmd2);
+         writefln("%s\n",res2);
     }
 
     string cmd3 = format("ssh -o StrictHostKeyChecking=no 0.0.0.0 -p %s 'docker rm %s'", servPort,conName);
@@ -142,6 +154,7 @@ void shutDownContainer(Redis db,Socket obsSock,string servName,int servPort,stri
     {
         noError = false;
         writefln("Container deletion failed\n %s\n",cmd3);
+         writefln("%s\n",res3);
     }
 
     string cmd1 = format("VBoxManage controlvm %s natpf1 delete %s",servName,conName);
@@ -150,12 +163,13 @@ void shutDownContainer(Redis db,Socket obsSock,string servName,int servPort,stri
     {
         noError = false;
         writefln("VM modification failed\n %s\n",cmd1);
+         writefln("%s\n",res1);
     }
 
     if(noError)
     {
-        writefln("Container successfully shut down!\n");
-        string data = format("type:containerdel,conName:%s,servName:%s,buff:buff",conName,servName);
+        writefln("Container %s successfully shut down!\n",conName);
+        string data = format("type:containerdel,conName:%s,servName:%s,conCPU:%s,conMEM:%s,buff:buff",conName,servName,conCPU,conMEM);
         synchronized 
         {
             obsSock.send(data);
@@ -370,7 +384,8 @@ void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,str
 
 void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
 { 
-    refreshFreedEntities(db);
+    //refreshFreedEntities(db);
+
 
     if(cmdVals["cmd"] == "createVM")
     {
@@ -382,11 +397,12 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
         int sPort = 0;
         synchronized 
         {
+            refreshFreedEntities(db);
             if(!empty(freedServers))
             {
                 writefln("here!!!!\n");
                 sName ~= to!string(freedServers[0]);
-                freedServers.remove(0);
+                freedServers = freedServers.remove(0);
             }
             else 
             {
@@ -397,7 +413,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
             if(!empty(freedPorts))
             {
                 sPort = freedPorts[0];
-                freedPorts.remove(0);
+                freedPorts = freedPorts.remove(0);
             }
             else 
             {
@@ -415,6 +431,13 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
     }
     else if(cmdVals["cmd"] == "createCon")
     {
+
+       // synchronized 
+        //{
+        //    socks["agent1"].send("cmd:execget,buff:buff");
+        //    writefln("sent to agent1!!!!!\n");
+        //}
+
         string cName = "c";
         int cPort = 0;
         int cCPU = 0;
@@ -444,10 +467,17 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
 
         synchronized 
         {
+            refreshFreedEntities(db);
             if(!empty(freedContainers))
             {
+                writefln("freedContainers before %s",freedContainers);
                 cName ~= to!string(freedContainers[0]);
-                freedContainers.remove(0);
+                freedContainers = freedContainers.remove(0);
+                writefln("freedContainers after %s",freedContainers);
+
+                string freeConQuery2 = format("SREM free_containers %s",cName[1..$]);
+                writefln("Exec freeconquery : %s\n",freeConQuery2);
+                db.send(freeConQuery2);
             }
             else 
             {
@@ -457,8 +487,15 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
 
             if(!empty(freedPorts))
             {
+                writefln("freedPorts before %s \n",freedPorts);
                 cPort = freedPorts[0];
-                freedPorts.remove(0);
+                freedPorts = freedPorts.remove(0);
+                writefln("freedPorts after %s \n",freedPorts);
+
+                string freePortQuery2 = format("SREM free_Ports %s",
+                cmdVals["servPort"]);
+                writefln("Exec freePortQuery : %s\n",freePortQuery2);
+                db.send(freePortQuery2);
             }
             else 
             {
@@ -500,13 +537,50 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
             {
                 serverPort = v.value;
             }
-
+            writefln("Creating container %s!\n",cName);
             spinUpContainer(socks["obs"],cmdVals["servName"],to!int(serverPort),cName,cPort,cmdVals["conType"],cCPU,cMEM);
+            waitSignal(cAddGet);
+            cAddGet = false;
         }
     }
     else if(cmdVals["cmd"] == "deleteCon")
     {
-        shutDownContainer(db,socks["obs"],cmdVals["servName"],to!int(cmdVals["servPort"]),cmdVals["conName"]);
+       // synchronized 
+        //{
+        //    socks["agent1"].send("cmd:execget,buff:buff");
+        //    writefln("sent to agent1!!!!!\n");
+        //}
+
+        int cCPU = 0;
+        int cMEM = 0;
+
+        if(cmdVals["conType"] == "A")
+        {
+            cCPU = 2;
+            cMEM = 1;
+        }
+        else if(cmdVals["conType"] == "B")
+        {
+            cCPU = 2;
+            cMEM = 2;
+        }
+        else if(cmdVals["conType"] == "C")
+        {
+            cCPU = 4;
+            cMEM = 4;
+        }
+        else
+        {
+            cCPU = 8;
+            cMEM = 8;
+        }
+
+        synchronized 
+        {
+            shutDownContainer(db,socks["obs"],cmdVals["servName"],to!int(cmdVals["servPort"]),cmdVals["conName"],cCPU,cMEM);
+            waitSignal(cDelGet);
+            cDelGet = false;
+        }
     }
     else if(cmdVals["cmd"] == "totalShut")
     {
@@ -576,6 +650,17 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
 
         sendRequest(to!int(cmdVals["port"]), t,startTime,socks["obs"],db,cmdVals);
     }
+    else if(cmdVals["cmd"] == "cAddConfirmed")
+    {
+        writefln("cAddGet set to true\n");
+        cAddGet = true;
+    }
+    else if(cmdVals["cmd"] == "cDelConfirmed")
+    {
+        writefln("cDelGet set to true\n");
+        cDelGet = true;
+    }
+
 }
 
 void main(string[] args)
@@ -672,7 +757,7 @@ void main(string[] args)
                         {
                             auto t = task!handleInput(redis,cmdVals,socks);
                             t.executeInNewThread();
-                            t.workForce;
+                            //t.workForce;
                         }
 
                     }

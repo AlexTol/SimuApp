@@ -8,6 +8,8 @@ import std.stdio : writeln, writefln;
 import tinyredis;
 import std.parallelism;
 
+Socket[string] socks;
+
 string[string] processInput(string input)
 {
     string[string] cmdVals;
@@ -25,7 +27,7 @@ string[string] processInput(string input)
     return cmdVals;
 }
 
-void handleInput(string[string] cmdVals,Redis db)
+void handleInput(string[string] cmdVals,Redis db,Socket[string] socks)
 {
 
     if(cmdVals["type"] == "serveradd")
@@ -119,6 +121,7 @@ void handleInput(string[string] cmdVals,Redis db)
     {
         string freeConQuery = format("SREM free_containers %s",
         cmdVals["conName"][1..$]);
+        writefln("freeconquery : %s\n",freeConQuery);
         db.send(freeConQuery);
 
         string freePortQuery = format("SREM free_Ports %s",
@@ -158,11 +161,20 @@ void handleInput(string[string] cmdVals,Redis db)
         db.send(serverConQuery);
 
         writefln("scontainer %s saved!\n",cmdVals["conName"]);
+
+        synchronized 
+        {
+            socks["agent1"].send("cmd:cAddConfirmed,buff:buff");
+            socks["exec"].send("cmd:cAddConfirmed,buff:buff");
+            writefln("sent to agent1!!!!!\n");
+        }
+
     }//todo write server edit for containerdel and edit the commands in executor
     else if(cmdVals["type"] == "containerdel")
     {
-        string setDelQuery = format("SREM %s_containers %s",
+        string setDelQuery = format("SREM %s_containers %s", //todo maybe this srem is funky...
         cmdVals["servName"],cmdVals["conName"]);
+        writefln("setDelQuery %s\n",setDelQuery);
         db.send(setDelQuery);
 
         //free up container ports
@@ -207,9 +219,17 @@ void handleInput(string[string] cmdVals,Redis db)
 
         string freeConQuery = format("SADD free_containers %s",
         cmdVals["conName"][1..$]);
+        writefln("freeconquery (add): %s\n",freeConQuery);
         db.send(freeConQuery);
 
         writefln("scontainer %s deleted!\n",cmdVals["conName"]);
+
+        synchronized 
+        {
+            socks["agent1"].send("cmd:cDelConfirmed,buff:buff");
+            socks["exec"].send("cmd:cDelConfirmed,buff:buff");
+            writefln("sent to agent1!!!!!\n");
+        }
     }
     else if(cmdVals["type"] == "reqStatus")
     {
@@ -285,10 +305,20 @@ void main(string[] args)
                             writefln("Empty cmdVals instance:\n");
                             continue;
                         }
+                        else if(cmdVals["type"] == "connect")
+                        {
+                            socks["agent1"] = new TcpSocket(new InternetAddress("127.0.0.1", 7003));
+                            socks["orch"] = new TcpSocket(new InternetAddress("127.0.0.1", 7002));
+                            socks["exec"] = new TcpSocket(new InternetAddress("127.0.0.1", 7000));
 
-                        auto t = task!handleInput(cmdVals,redis);
-                        t.executeInNewThread();
-                        t.workForce;
+                            socks["orch"].send("cmd:obsFullyConnected,buff:buff");
+                        }
+                        else
+                        {
+                            auto t = task!handleInput(cmdVals,redis,socks);
+                            t.executeInNewThread();
+                            t.workForce;
+                        }
                     }
 
                     continue;

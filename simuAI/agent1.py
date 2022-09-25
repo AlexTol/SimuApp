@@ -14,6 +14,8 @@ import requests
 agentThyme = True
 #global execGet
 execGet = False
+cDelConfirmed = False
+cAddConfirmed = False
 
 #global Complete
 #global Deny
@@ -47,6 +49,7 @@ prevMEMUsage = {}
 
 #global lock
 execlock = threading.Lock()
+execlock2 = threading.Lock()
 orchlock = threading.Lock()
 
 r = redis.Redis(
@@ -664,7 +667,7 @@ def provisionerTime():
         if(count >= 6 + firstTimeDelay): #cheesy way of running this every 30 secs
             conProvisioningTime(13)
             count = 0
-            firstTimeDelay = 10
+            firstTimeDelay = 0
 
 def agentTime():
     global agentThyme
@@ -839,64 +842,115 @@ def conProvisionerReward(serv,sObj,poorDeprovision,timeouts,prevAction):
     + " ,totalCPUUTILC: " + str(info['totalCPUUtilC']) + " ,totalCPUUTILD: " + str(info['totalCPUUtilD']) + " ,conCount: " + str(conCount) + " ,reward: " + str(memBase + cpuBase - timeoutPenalty) + "\n")
     return memBase + cpuBase - timeoutPenalty
 
-def getConOfLowestUtilType(serv,type):
+def getConOfLowestUtilType(serv,mtype):
     #todo figure this out
-    topUtil = -1
-    topCon = "blah"
+    botUtil = 1000
+    botCon = "blah"
     #getConUtil(chosenConObj["conPort"],"CPU")
     cons = getContainers({serv:0})[serv]
     for con,cObj in cons.items():
-        if(cObj["conType"] != type):
+        print("con: " + str(con))
+        print("cObj: " + str(cObj))
+        if(cObj["conType"] != mtype):
             continue
 
-        cpuUtil = getConUtil(cObj["conPort"],"CPU")
-        memUtil = getConUtil(cObj["conPort"],"MEM")
-        util = (cpuUtil + memUtil)/2
-        if(util > topUtil):
-            topCon = con
+        try:
+            cpuUtil = getConUtil(cObj["conPort"],"CPU")
+            print("conUtil CPU : " + str(cpuUtil))
+        except:
+            print("con no longer exists: " + str(con))
+            continue
 
-    return topCon
+        try:
+            memUtil = getConUtil(cObj["conPort"],"MEM")
+            print("conUtil MEM : " + str(memUtil))
+        except:
+            print("con no longer exists: " + str(con))
+            continue
+        
+        util = (cpuUtil + memUtil)/2
+        if(util < botUtil):
+            botCon = con
+
+    return botCon
+
+def waitDel():
+    global cDelConfirmed
+    while not cDelConfirmed:
+        pass
+    cDelConfirmed = False
+
+def waitAdd():
+    global cAddConfirmed
+    while not cAddConfirmed:
+        pass
+    cAddConfirmed = False
 
 def execConProvChoice(choice,state,serv,sObj):
-    global execSock
+    global execlock2
+    global execSock2
+    global execGet
     poorDeprovision = False
+    waitadd = False
+    waitdel = False
     #cmd:createCon,servName:s1,servPort:8000,conName:c1,conPort:9000,conType:C,buff:buff
     #cmd:deleteCon,servName:s1,servPort:8000,conName:c3,buff:buff
     servPort = sObj["servPort"]
-
-    with execlock:
+    print("EXECCONPROVECHOICE HERE, choice " + str(choice))
+    with execlock2:
         if(choice == 1):
             cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:A,buff:buff"
+            waitadd = True
         elif(choice == 2):
             cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:B,buff:buff"
+            waitadd = True
         elif(choice == 3):
             cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:C,buff:buff"
+            waitadd = True
         elif(choice == 4):
             cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:D,buff:buff"
+            waitadd = True
         elif(choice == 5):
+            print("A Count: " + str(state[8]) + " ,equals? : " + str(state[8] == 1)) #todo cast this to float, maybe check if the state == 1
             if(state[8] == 1):
                 poorDeprovision = True
             con = getConOfLowestUtilType(serv,"A")
-            cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},buff:buff"
+            cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},conType:A,buff:buff"
+            waitdel = True
         elif(choice == 6):
+            print("B Count: " + str(state[9]) + " ,equals? : " + str(state[9] == 1))
             if(state[9] == 1):
                 poorDeprovision = True
             con = getConOfLowestUtilType(serv,"B")
-            cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},buff:buff"
+            cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},conType:B,buff:buff"
+            waitdel = True
         elif(choice == 7):
+            print("C Count: " + str(state[10]) + " ,equals? : " + str(state[10] == 1))
             if(state[10] == 1):
                 poorDeprovision = True
             con = getConOfLowestUtilType(serv,"C")
-            cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},buff:buff"
+            cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},conType:C,buff:buff"
+            waitdel = True
         elif(choice == 8):
+            print("D Count: " + str(state[11]) + " ,equals? : " + str(state[11] == 1))
             if(state[11] == 1):
                 poorDeprovision = True
             con = getConOfLowestUtilType(serv,"D")
-            cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},buff:buff"
+            cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},conType:D,buff:buff"
+            waitdel = True
+        else:
+            return False
 
         if(not poorDeprovision):
-            execSock.sendall(cmd)
+            print("poorDeprovision: " + str(poorDeprovision) + " , cmd: " + str(cmd))
+            execSock2.sendall(cmd.encode())
 
+            if(waitadd):
+                waitAdd()
+            elif(waitdel):
+                waitDel()
+
+    print("EXECCONPROVECHOICE HERE2")
     return poorDeprovision
 
 
@@ -1113,7 +1167,7 @@ def zeroEncodeAgentTime(cmdVals):
         execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{schoice},con:{cchoice},buff:buff".encode()) #problem is here, doesn't completely send
         while not execGet:
             pass
-        #print("exiting while in agent1\n")
+        print("exiting while in agent1\n")
         execGet = False
 
         prevState = taskAgentState
@@ -1295,15 +1349,16 @@ def conProvisioningTime(size): #todo complete, double check the parallelism on t
     global prevServStates 
     global prevServActs
     global prevServRewards
+    global prevServPDeprovs
     
     servs = getServers()
     servActs = {}
     poorDeprovisions = {}
-    for serv,state in prevServStates.items():
-        choice = conProvisioningAgent.act(state)
-        servActs[serv] = choice
-        pDeprovision = execConProvChoice(choice,state,serv,servs[serv])
-        poorDeprovision[serv] = pDeprovision
+    #for serv,state in prevServStates.items():
+    #    choice = conProvisioningAgent.act(state)
+    #    servActs[serv] = choice
+    #    pDeprovision = execConProvChoice(choice,state,serv,servs[serv])
+    #    poorDeprovisions[serv] = pDeprovision
 
     servStates = {}
     servRewards = {}
@@ -1313,25 +1368,31 @@ def conProvisioningTime(size): #todo complete, double check the parallelism on t
         getContainerProvisionerInfo(state,serv,sObj)
 
         servStates[serv] = state
+        choice = conProvisioningAgent.act(state)
+        servActs[serv] = choice
+        pDeprovision = execConProvChoice(choice,state,serv,sObj)
+        poorDeprovisions[serv] = pDeprovision
 
-        if(prevServActs == "none"):
+        if(prevServActs == "none" or len(prevServActs) == 0):
             prevAction = "none"
         else:
+            #print(prevServActs)
             prevAction = prevServActs[serv]
 
-        if(len(poorDeprovisions) == 0):
+        if(len(prevServPDeprovs) == 0):
             poorDeprov = False
         else:
-            poorDeprov = poorDeprovisions[serv]
+            poorDeprov = prevServPDeprovs[serv]
 
         reward = conProvisionerReward(serv,sObj,poorDeprov,state[12],prevAction)
         servRewards[serv] = reward
-        if(serv in prevServStates.keys() and prevServActs != "none"):
+        if(serv in prevServStates.keys() and (prevServActs != "none" and len(prevServActs) > 0)):
             conProvisioningAgent.remember(prevServStates[serv],prevServActs[serv],prevServRewards[serv],state,False)
 
     prevServActs = servActs
     prevServStates = servStates
     prevServRewards = servRewards
+    prevServPDeprovs = poorDeprovisions
 
 
 
@@ -1339,6 +1400,8 @@ def handleInput(dat):
     global execlock #how to access global var
     global orchlock
     global execGet
+    global cAddConfirmed
+    global cDelConfirmed
     global orchSock
     global execSock
     global taskAgent
@@ -1360,6 +1423,12 @@ def handleInput(dat):
     elif cmdVals['cmd'] == "execget":
         print("set exec get to true!!!\n")
         execGet = True
+    elif cmdVals['cmd'] == "cAddConfirmed":
+        print("set cAddConfirmed to true!!!\n")
+        cAddConfirmed = True
+    elif cmdVals['cmd'] == "cDelConfirmed":
+        print("set cDelConfirmed to true!!!\n")
+        cDelConfirmed = True
     
 def second_passed(prevTime):
     return time.time() - prevTime >= 1
@@ -1441,6 +1510,9 @@ obsSock.setblocking(0)
 execSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 execSock.connect(('localhost', 7000))
 execSock.setblocking(0)
+execSock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+execSock2.connect(('localhost', 7000))
+execSock2.setblocking(0)
 
 curTime = time.time()
 #orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff')
@@ -1478,6 +1550,7 @@ for serv,sObj in servs.items():
     prevServStates[serv] = np.zeros(9)
 prevServActs = "none" 
 prevServRewards = {}
+prevServPDeprovs = {}
 
 mt = threading.Thread(target=runServer,args=())
 mt.start()

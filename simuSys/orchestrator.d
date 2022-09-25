@@ -13,6 +13,7 @@ import core.time;
 import core.thread.osthread;
 
 shared bool exFullyConnected = false;
+shared bool obsFullyConnected = false;
 shared bool agent1FullyConnected = false;
 shared bool shutDownComsExecuted = false;
 shared bool agent1Get = false;
@@ -159,23 +160,33 @@ void initEnvironment(Redis db)
     //wait for socks to be fully connected
     waitSignal(exFullyConnected);
 
+    string obsLinkCommand = format("type:connect,buff:buff");
+    Socket mObs = cast(Socket)obs;
+    mObs.send(obsLinkCommand);
+    waitSignal(obsFullyConnected);
+
     string agent1LinkCommand = format("cmd:connect,buff:buff");
     Socket mAgent1 = cast(Socket)agent1;
     mAgent1.send(agent1LinkCommand);
-
     waitSignal(agent1FullyConnected);
     
     writefln("Executor and Observer are online! \n");
 
     startupServers();
 
-    int AUServs = 0;
-    while(AUServs < 1)
+    int totalServs = 0;
+    string[] regions = ["NA","SA","EU","AF","AS","AU"];
+    while(totalServs < 6)
     {
-        auto aus = db.send("SMEMBERS","AU_servers");
-        foreach(k,v; aus)
+        totalServs = 0;
+        foreach (string region; regions)
         {
-            AUServs += 1;
+            string servString = format("%s_servers",region);
+            auto servs = db.send("SMEMBERS",servString);
+            foreach(k,v; servs)
+            {
+                totalServs += 1;
+            }   
         }
     }
 
@@ -303,6 +314,11 @@ void handleInput(string[string] cmdVals,Redis db)
     {
         exFullyConnected = true;
         writefln("%s\n",exFullyConnected);
+    }
+    else if(cmdVals["cmd"] == "obsFullyConnected")
+    {
+        obsFullyConnected = true;
+        writefln("%s\n",obsFullyConnected);
     }
     else if(cmdVals["cmd"] == "agent1FullyConnected")
     {
