@@ -164,7 +164,10 @@ void handleInput(string[string] cmdVals,Redis db,Socket[string] socks)
 
         synchronized 
         {
-            socks["agent1"].send("cmd:cAddConfirmed,buff:buff");
+            if(cmdVals["agent"] != "no")
+            {
+                socks["agent1"].send("cmd:cAddConfirmed,buff:buff");
+            }
             socks["exec"].send("cmd:cAddConfirmed,buff:buff");
             writefln("sent to agent1!!!!!\n");
         }

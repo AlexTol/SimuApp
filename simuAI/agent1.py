@@ -14,8 +14,10 @@ import requests
 agentThyme = True
 #global execGet
 execGet = False
+execGet2 = False
 cDelConfirmed = False
 cAddConfirmed = False
+provisioningInAction = False
 
 #global Complete
 #global Deny
@@ -605,12 +607,29 @@ def conNameToNum(cName):
     return int(cName.split("c")[1])
 
 def getConUtil(port,rtype):
-    r = requests.post(f"http://localhost:{port}/simuUtil")
+
+    try:
+        print(f"request to http://localhost:{port}/simuUtil \n")
+        r = requests.post(f"http://localhost:{port}/simuUtil")
+    except:
+        print(f"con on port {port} no longer exists")
+        return 0
+
 
     if(rtype == "CPU"):
-        return r.json()["cUtil"]
+        cpuutil = r.json()["cUtil"]
+        print(f"!CPU UTIL: {cpuutil}")
+        if(cpuutil == None):
+            cpuutil = 0
+
+        return cpuutil
     else:
-        return r.json()["mUTIL"]
+        memutil = r.json()["mUTIL"]
+        print(f"!MEM UTIL: {memutil}")
+        if(memutil == None):
+            memutil = 0
+
+        return memutil
 
 def displayEnvState():
     taskData = getTaskData()
@@ -658,6 +677,8 @@ def agentLearn():
         clearFinishedQueries()
 
 def provisionerTime():
+    global provisioningInAction
+
     count = 0
     firstTimeDelay = 10
     while True:
@@ -665,9 +686,11 @@ def provisionerTime():
         clearFinishedQueries()
         count += 1
         if(count >= 6 + firstTimeDelay): #cheesy way of running this every 30 secs
+            provisioningInAction = True
             conProvisioningTime(13)
             count = 0
             firstTimeDelay = 0
+            provisioningInAction = False
 
 def agentTime():
     global agentThyme
@@ -854,19 +877,11 @@ def getConOfLowestUtilType(serv,mtype):
         if(cObj["conType"] != mtype):
             continue
 
-        try:
-            cpuUtil = getConUtil(cObj["conPort"],"CPU")
-            print("conUtil CPU : " + str(cpuUtil))
-        except:
-            print("con no longer exists: " + str(con))
-            continue
+        cpuUtil = getConUtil(cObj["conPort"],"CPU")
+        print("conUtil CPU : " + str(cpuUtil))
 
-        try:
-            memUtil = getConUtil(cObj["conPort"],"MEM")
-            print("conUtil MEM : " + str(memUtil))
-        except:
-            print("con no longer exists: " + str(con))
-            continue
+        memUtil = getConUtil(cObj["conPort"],"MEM")
+        print("conUtil MEM : " + str(memUtil))
         
         util = (cpuUtil + memUtil)/2
         if(util < botUtil):
@@ -876,20 +891,30 @@ def getConOfLowestUtilType(serv,mtype):
 
 def waitDel():
     global cDelConfirmed
+    print("going into del\n")
     while not cDelConfirmed:
+        #print("cDelConfirmed " + str(cDelConfirmed))
         pass
     cDelConfirmed = False
+    print("going out of del\n")
 
 def waitAdd():
     global cAddConfirmed
+
+    print("going into add\n")
     while not cAddConfirmed:
+        #print("cAddConfirmed " + str(cAddConfirmed))
         pass
     cAddConfirmed = False
+    print("going out of add\n")
 
 def execConProvChoice(choice,state,serv,sObj):
     global execlock2
     global execSock2
-    global execGet
+    global execGet2
+    global cAddConfirmed
+
+
     poorDeprovision = False
     waitadd = False
     waitdel = False
@@ -899,16 +924,16 @@ def execConProvChoice(choice,state,serv,sObj):
     print("EXECCONPROVECHOICE HERE, choice " + str(choice))
     with execlock2:
         if(choice == 1):
-            cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:A,buff:buff"
+            cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:A,agent:y,buff:buff"
             waitadd = True
         elif(choice == 2):
-            cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:B,buff:buff"
+            cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:B,agent:y,buff:buff"
             waitadd = True
         elif(choice == 3):
-            cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:C,buff:buff"
+            cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:C,agent:y,buff:buff"
             waitadd = True
         elif(choice == 4):
-            cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:D,buff:buff"
+            cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:D,agent:y,buff:buff"
             waitadd = True
         elif(choice == 5):
             print("A Count: " + str(state[8]) + " ,equals? : " + str(state[8] == 1)) #todo cast this to float, maybe check if the state == 1
@@ -942,15 +967,19 @@ def execConProvChoice(choice,state,serv,sObj):
             return False
 
         if(not poorDeprovision):
-            print("poorDeprovision: " + str(poorDeprovision) + " , cmd: " + str(cmd))
+            print("poorDeprovision: " + str(poorDeprovision) + " ,cAddConfirmed: " + str(cAddConfirmed) +" , cmd: " + str(cmd))
             execSock2.sendall(cmd.encode())
+
+            #while not execGet2:
+            #    pass
+            #execGet2 = False
 
             if(waitadd):
                 waitAdd()
             elif(waitdel):
                 waitDel()
 
-    print("EXECCONPROVECHOICE HERE2")
+    print("EXECCONPROVECHOICE HERE2, choice " + str(choice))
     return poorDeprovision
 
 
@@ -1400,6 +1429,7 @@ def handleInput(dat):
     global execlock #how to access global var
     global orchlock
     global execGet
+    global execGet2
     global cAddConfirmed
     global cDelConfirmed
     global orchSock
@@ -1410,19 +1440,25 @@ def handleInput(dat):
     global episodes2
     global episodes3
     global curTime
+    global provisioningInAction
 
     cmdVals = processInput(dat)
     if len(cmdVals) == 0:
         print("Empty cmdVals instance py\n")
     elif  cmdVals['cmd'] == "stask":
+        while provisioningInAction:
+            pass
         #zeroEncodeAgentTime(cmdVals)
         scheduleNetTime(cmdVals,12,8,4)
     elif  cmdVals['cmd'] == "connect":
         with orchlock:
             orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff\r\n')
     elif cmdVals['cmd'] == "execget":
-        print("set exec get to true!!!\n")
+        print("set execget to true!!!\n")
         execGet = True
+    elif cmdVals['cmd'] == "execget2":
+        print("set execget2 to true!!!\n")
+        execGet2 = True
     elif cmdVals['cmd'] == "cAddConfirmed":
         print("set cAddConfirmed to true!!!\n")
         cAddConfirmed = True

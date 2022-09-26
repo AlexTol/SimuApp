@@ -69,10 +69,10 @@ void startupCons()
 {
     for(int i = 1; i <= 6; i++)
     {
-        string containerCom1 = format("cmd:createCon,servName:s%s,conType:A,buff:buff",i);
-        string containerCom2 = format("cmd:createCon,servName:s%s,conType:B,buff:buff",i);
-        string containerCom3 = format("cmd:createCon,servName:s%s,conType:C,buff:buff",i);
-        string containerCom4 = format("cmd:createCon,servName:s%s,conType:D,buff:buff",i);
+        string containerCom1 = format("cmd:createCon,servName:s%s,conType:A,agent:no,buff:buff",i);
+        string containerCom2 = format("cmd:createCon,servName:s%s,conType:B,agent:no,buff:buff",i);
+        string containerCom3 = format("cmd:createCon,servName:s%s,conType:C,agent:no,buff:buff",i);
+        string containerCom4 = format("cmd:createCon,servName:s%s,conType:D,agent:no,buff:buff",i);
 
         Socket mExec = cast(Socket)exec;
 

@@ -93,8 +93,8 @@ string[string] processInput(string input)
             }
             else
             {
-                writefln("odd len 1 array! %s\n",token);
-                writefln("whole input %s\n",input);
+                //writefln("odd len 1 array! %s\n",token);
+                //writefln("whole input %s\n",input);
             }
         }
     }
@@ -102,7 +102,7 @@ string[string] processInput(string input)
     return cmdVals;
 }
 
-void spinUpContainer(Socket obsSock,string servName,int servPort,string conName,int containerPort,string conType,int conCPU,int conMEM)
+void spinUpContainer(Socket obsSock,string servName,int servPort,string conName,int containerPort,string conType,int conCPU,int conMEM,string agent)
 {
     bool noError = true;
     string cmd1 = format("vboxmanage controlvm \"%s\" natpf1 \"%s,tcp,,%s,,%s\"",servName,conName,containerPort,containerPort);
@@ -126,8 +126,8 @@ void spinUpContainer(Socket obsSock,string servName,int servPort,string conName,
     if(noError)
     {
         writefln("Container successfully spun up!\n");
-        string data = format("type:containeradd,conName:%s,conPort:%s,conType:%s,servName:%s,servPort:%s,conCPU:%s,conMEM:%s,buff:buff",
-        conName,containerPort,conType,servName,servPort,conCPU,conMEM);
+        string data = format("type:containeradd,conName:%s,conPort:%s,conType:%s,servName:%s,servPort:%s,conCPU:%s,conMEM:%s,agent:%s,buff:buff",
+        conName,containerPort,conType,servName,servPort,conCPU,conMEM,agent);
         synchronized 
         {
             obsSock.send(data);
@@ -384,7 +384,10 @@ void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,str
 
 void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
 { 
-    //refreshFreedEntities(db);
+    synchronized 
+    {
+        refreshFreedEntities(db);
+    }
 
 
     if(cmdVals["cmd"] == "createVM")
@@ -397,7 +400,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
         int sPort = 0;
         synchronized 
         {
-            refreshFreedEntities(db);
+            //refreshFreedEntities(db);
             if(!empty(freedServers))
             {
                 writefln("here!!!!\n");
@@ -432,42 +435,42 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
     else if(cmdVals["cmd"] == "createCon")
     {
 
-       // synchronized 
-        //{
-        //    socks["agent1"].send("cmd:execget,buff:buff");
-        //    writefln("sent to agent1!!!!!\n");
-        //}
+       synchronized 
+        {
+            /**if(cmdVals["agent"] != "no")
+            {
+                socks["agent1"].send("cmd:execget2,buff:buff");
+                writefln("sending execget2 to agent1!!!!!\n");
+            }*/
+        
+            writefln("Checkpoint 0 \n");
+            string cName = "c";
+            int cPort = 0;
+            int cCPU = 0;
+            int cMEM = 0;
 
-        string cName = "c";
-        int cPort = 0;
-        int cCPU = 0;
-        int cMEM = 0;
-
-        if(cmdVals["conType"] == "A")
-        {
-            cCPU = 2;
-            cMEM = 1;
-        }
-        else if(cmdVals["conType"] == "B")
-        {
-            cCPU = 2;
-            cMEM = 2;
-        }
-        else if(cmdVals["conType"] == "C")
-        {
-            cCPU = 4;
-            cMEM = 4;
-        }
-        else
-        {
-            cCPU = 8;
-            cMEM = 8;
-        }
-
-
-        synchronized 
-        {
-            refreshFreedEntities(db);
+            if(cmdVals["conType"] == "A")
+            {
+                cCPU = 2;
+                cMEM = 1;
+            }
+            else if(cmdVals["conType"] == "B")
+            {
+                cCPU = 2;
+                cMEM = 2;
+            }
+            else if(cmdVals["conType"] == "C")
+            {
+                cCPU = 4;
+                cMEM = 4;
+            }
+            else
+            {
+                cCPU = 8;
+                cMEM = 8;
+            }
+            writefln("Checkpoint 1 \n");
+            //refreshFreedEntities(db);
             if(!empty(freedContainers))
             {
                 writefln("freedContainers before %s",freedContainers);
@@ -484,6 +487,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
                 cName ~= to!string(containerNum);
                 atomicOp!"+="(containerNum, 1);
             }
+            writefln("Checkpoint 2 \n");
 
             if(!empty(freedPorts))
             {
@@ -502,6 +506,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
                 cPort = portNum;
                 atomicOp!"+="(portNum, 1);    
             }
+            writefln("Checkpoint 3 \n");
 
             string servCPUQuery = format("HMGET %s availableCPU",
             cmdVals["servName"]);
@@ -515,6 +520,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
                     return;
                 }
             }
+            writefln("Checkpoint 4 \n");
 
             string servMEMQuery = format("HMGET %s availableMEM",
             cmdVals["servName"]);
@@ -528,6 +534,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
                     return;
                 }
             }
+            writefln("Checkpoint 5 \n");
 
             string serverPort = "";
             string serverPortQ = format("HMGET %s servPort",
@@ -537,19 +544,22 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
             {
                 serverPort = v.value;
             }
+            writefln("Checkpoint 6 \n");
+
             writefln("Creating container %s!\n",cName);
-            spinUpContainer(socks["obs"],cmdVals["servName"],to!int(serverPort),cName,cPort,cmdVals["conType"],cCPU,cMEM);
+            spinUpContainer(socks["obs"],cmdVals["servName"],to!int(serverPort),cName,cPort,cmdVals["conType"],cCPU,cMEM,cmdVals["agent"]);
             waitSignal(cAddGet);
             cAddGet = false;
+            writefln("Create process for %s done!\n",cName);
         }
     }
     else if(cmdVals["cmd"] == "deleteCon")
     {
-       // synchronized 
-        //{
-        //    socks["agent1"].send("cmd:execget,buff:buff");
+        /**synchronized //turn the syncronized into 1 block and make it send execget3, edits will need to be made on python,maybe....try just the one block first
+        {
+            socks["agent1"].send("cmd:execget2,buff:buff");
         //    writefln("sent to agent1!!!!!\n");
-        //}
+        }*/
 
         int cCPU = 0;
         int cMEM = 0;
@@ -577,9 +587,11 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
 
         synchronized 
         {
+            writefln("Deleting %s!\n",cmdVals["conName"]);
             shutDownContainer(db,socks["obs"],cmdVals["servName"],to!int(cmdVals["servPort"]),cmdVals["conName"],cCPU,cMEM);
             waitSignal(cDelGet);
             cDelGet = false;
+            writefln("Delete process for %s done!\n",cmdVals["conName"]);
         }
     }
     else if(cmdVals["cmd"] == "totalShut")
@@ -798,7 +810,19 @@ void main(string[] args)
                 if (sn)
                     sn.close();
             }
-            sn = listener.accept();
+
+
+            try
+            {
+                sn = listener.accept();
+            }
+            catch(SocketException e)
+            {
+                //writefln("%s\n",e);
+                continue;
+            }
+            //sn = listener.accept();
+            
             assert(sn.isAlive);
             assert(listener.isAlive);
 
