@@ -197,6 +197,7 @@ void initEnvironment(Redis db)
     int s6Cons = 0;
     while(s6Cons < 4)
     {
+        s6Cons = 0;
         auto cons = db.send("SMEMBERS","s6_containers");
         foreach(k,v; cons)
         {
@@ -291,7 +292,7 @@ void generateTasks()
             waitSignal(agent1Get);
             agent1Get = false;
         }
-
+        mAgent1.send("cmd:triggerprovision,buff:buff");
         Thread.sleep(dur!("seconds")( 120)); //todo play with this
 
         wlid += 1;

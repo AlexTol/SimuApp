@@ -38,52 +38,49 @@ class ScheduleNet(nn.Module):
         
         return choices,servers[maxIndex]
 
-    def act2(self,containerTaskDimList,conObjs,conNames):
-        choices = []
-        chosenCons = []
-        chosenConObjs = []
-        chosenConNames = []
-        for i in range(0,len(containerTaskDimList)):
-            top_index,act_vals = self.containerAgent1.actSurrogate(containerTaskDimList[i])
+    def act2(self,layer2list,cons):
+        choices = {}
+        chosenCons = {}
+        chosenConStates = {}
+        for con,containerTaskDimList in layer2List.items():
+            top_index,act_vals = self.containerAgent1.actSurrogate(containerTaskDimList)
             
             if(top_index == -1):#need to do this due to pytorch >=.5 quirk
                 choice = act_vals 
             else:
                 choice = top_index
-            choices.append(choice)
+            choices[con] = choice
             #print("DIMLIST : " + str(containerTaskDimList[i]) + " ,conName: " + str(conNames[i]) + " ,CONOBJ: " + str(conObjs[i]) + " ,CHOICE : " + str(choice) + "\n")
             #print("CHOICE : " + str(choice) + "\n")
             if(choice == 1):
-                chosenCons.append(containerTaskDimList[i])
-                chosenConObjs.append(conObjs[i])
-                chosenConNames.append(conNames[i])
+                chosenCons[con] = cons[con]
+                chosenConStates[con] = containerTaskDimList
         
         if(len(chosenCons) == 0):
-            chosenCons.append(containerTaskDimList[0])
-            chosenConObjs.append(conObjs[0])
-            chosenConNames.append(conNames[0])
+            cIndex = list(cons.keys())[0]
+            chosenCons[con] = cons[cIndex]
+            chosenConStates[con] = layer2list[cIndex]
 
         #print("ACT2 choices")
         #print(choices)
-        return choices,chosenCons,chosenConObjs,chosenConNames
+        return choices,chosenConStates,chosenCons
 
-    def act3(self,chosencontainerTaskDimList,chosenConNames):
+    def act3(self,layer3list,chosenCons):
         maxActVal = 0
-        maxIndex = 0
-        choices = []
-        for i in range(0,len(chosencontainerTaskDimList)):
-            top_index,act_vals = self.containerAgent2.actSurrogate(chosencontainerTaskDimList[i])
+        choices = {}
+        for con,chosencontainerTaskDimList in layer3list.items():
+            top_index,act_vals = self.containerAgent2.actSurrogate(chosencontainerTaskDimList)
             if(top_index == -1):#need to do this due to pytorch >=.5 quirk
                 currentVal = act_vals
             else:
                 currentVal = act_vals[top_index]
-            choices.append(top_index)
+            choices[con] = top_index
             if(currentVal > maxActVal):
                 maxActVal = currentVal
-                maxIndex = i
+                maxCon = con
 
         #print(chosencontainerTaskDimList[maxIndex])
-        return choices,chosenConNames[maxIndex]
+        return choices,maxCon
 
     def remember(self,layer,states,actions,rewards,next_states):
         #print("states len")
@@ -98,13 +95,24 @@ class ScheduleNet(nn.Module):
             for i in range(0,len(states)):
                 self.servAgent.remember(states[i],actions[i],rewards[i],next_states[i],False)
         elif(layer == 2):
-            for i in range(0,len(states)):
+            for con,action in actions.items():
                 #print("state: " + str(states[i]) + " ,action: " + str(actions[i]) + " ,reward: " + str(rewards[i]) + " ,next_state: " + str(next_states[i]))
-                self.containerAgent1.remember(states[i],actions[i],rewards[i],next_states[i],False)
+                if(con in next_states):
+                    nextState = next_states[con]
+                else:
+                    nextState = np.zeros(len(states[con])) #cheesy way of getting size,happens when con is deprovisioned
+
+                self.containerAgent1.remember(states[con],actions[con],rewards[con],nextState,False)
         else:
-            for i in range(0,len(states)):
+            for con,action in actions.items():
                 #print("state: " + str(states[i]) + " ,action: " + str(actions[i]) + " ,reward: " + str(rewards[i]) + " ,next_state: " + str(next_states[i]))
-                self.containerAgent2.remember(states[i],actions[i],rewards[i],next_states[i],False)
+                
+                if(con in next_states):
+                    nextState = next_states[con]
+                else:
+                    nextState = np.zeros(len(states[con])) #cheesy way of getting size,happens when con is deprovisioned
+
+                self.containerAgent2.remember(states[con],actions[con],rewards[con],nextState,False)
 
     def replay(self,batch_size):
         self.servAgent.replay(10,True)

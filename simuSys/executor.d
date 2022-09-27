@@ -28,6 +28,8 @@ shared int containerNum = 1;
 shared int portNum = 7200;
 shared bool cAddGet = false;
 shared bool cDelGet = false;
+shared bool sAddGet = false;
+shared bool sDelGet = false;
 Socket[string] socks;
 
 void waitSignal(shared ref bool sig)
@@ -38,13 +40,22 @@ void waitSignal(shared ref bool sig)
     }
 }
 
+Response execRedis(Redis db,string query)
+{
+    synchronized
+    {
+        return db.send(query);
+    }
+}
+
 void refreshFreedEntities(Redis db)
 {
     synchronized 
     {
         writefln("REFRESH\n");
         string freeConQuery = format("SMEMBERS free_containers");
-        Response containers = db.send(freeConQuery);
+        Response containers = execRedis(db,freeConQuery);
+        writefln("freeContainersResult %s",containers);
         foreach(k,v; containers.values)
         {
             if(!canFind(freedContainers,to!int(v.value)))
@@ -54,7 +65,7 @@ void refreshFreedEntities(Redis db)
         }
 
         string freeServQuery = format("SMEMBERS free_servers");
-        Response servers = db.send(freeServQuery);
+        Response servers = execRedis(db,freeServQuery);
         //writefln("%s\n",servers);
         foreach(k1,v1; servers.values)
         {
@@ -66,7 +77,7 @@ void refreshFreedEntities(Redis db)
         }
 
         string freePortQuery = format("SMEMBERS free_Ports");
-        Response ports = db.send(freePortQuery);
+        Response ports = execRedis(db,freePortQuery);
         foreach(k2,v2; ports.values)
         {
             if(!canFind(freedPorts,to!int(v2.value)))
@@ -75,6 +86,7 @@ void refreshFreedEntities(Redis db)
             }
         }
     }
+    
 }
 
 string[string] processInput(string input)
@@ -251,13 +263,13 @@ void totalShutDown(Redis db,Socket obsSock,Socket orchSock)
     string[] servers;
 
     string regionsQuery = format("SMEMBERS regions");
-    Response regions = db.send(regionsQuery);
+    Response regions = execRedis(db,regionsQuery);
     //writefln("%s",regionsQuery);
 
     foreach(k,v; regions.values)
     {
         string serverQuery = format("SMEMBERS %s_servers",v.value);
-        Response rServs = db.send(serverQuery);
+        Response rServs = execRedis(db,serverQuery);
         writefln("%s",serverQuery);
 
         foreach(k1,v1; rServs.values)
@@ -314,12 +326,12 @@ void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,str
         string wlid = t.id.split("_")[0];
 
         string checkDepQuery = format("HGETALL %s_%s",wlid,t.dependency);
-        auto dep = db.send(checkDepQuery);
+        auto dep = execRedis(db,checkDepQuery);
         writefln("dep: %s\n",dep);
 
         while(!empty(dep))
         {
-            dep = db.send(checkDepQuery);
+            dep = execRedis(db,checkDepQuery);
         }
     }
 
@@ -383,12 +395,19 @@ void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,str
 }
 
 void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
-{ 
-    synchronized 
-    {
-        refreshFreedEntities(db);
-    }
+{
+    writefln("Checkpoint -2 \n");
 
+
+    /**if(cmdVals["cmd"] == "createVM" || cmdVals["cmd"] == "deleteVM" || cmdVals["cmd"] == "createCon" || cmdVals["cmd"] == "deleteCon")
+    {
+        synchronized 
+        {
+            refreshFreedEntities(db);
+        }
+        
+    }*/
+    
 
     if(cmdVals["cmd"] == "createVM")
     {
@@ -427,14 +446,21 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
         //writefln("here!!!1!\n");
         //writefln("%s\n",socks);
         spinUpServer(socks["obs"],sName,sPort,to!int(cmdVals["servCPU"]),to!float(cmdVals["servMEM"]),cmdVals["region"]);
+        waitSignal(sAddGet);
+        sAddGet = false;
     }
     else if(cmdVals["cmd"] == "deleteVM")
     {
-        shutDownServer(db,socks["obs"],cmdVals["servName"]);
+        synchronized
+        {
+            shutDownServer(db,socks["obs"],cmdVals["servName"]);
+            waitSignal(sDelGet);
+            sDelGet = false;
+        }
     }
     else if(cmdVals["cmd"] == "createCon")
     {
-
+        writefln("Checkpoint -1 \n");
        synchronized 
         {
             /**if(cmdVals["agent"] != "no")
@@ -480,7 +506,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
 
                 string freeConQuery2 = format("SREM free_containers %s",cName[1..$]);
                 writefln("Exec freeconquery : %s\n",freeConQuery2);
-                db.send(freeConQuery2);
+                execRedis(db,freeConQuery2);
             }
             else 
             {
@@ -499,7 +525,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
                 string freePortQuery2 = format("SREM free_Ports %s",
                 cmdVals["servPort"]);
                 writefln("Exec freePortQuery : %s\n",freePortQuery2);
-                db.send(freePortQuery2);
+                execRedis(db,freePortQuery2);
             }
             else 
             {
@@ -510,7 +536,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
 
             string servCPUQuery = format("HMGET %s availableCPU",
             cmdVals["servName"]);
-            Response cpuRes = db.send(servCPUQuery);
+            Response cpuRes = execRedis(db,servCPUQuery);
             foreach(cpuK,cpuV; cpuRes.values)
             {
                 if(cCPU > to!int(cpuV))
@@ -524,7 +550,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
 
             string servMEMQuery = format("HMGET %s availableMEM",
             cmdVals["servName"]);
-            Response memRes = db.send(servMEMQuery);
+            Response memRes = execRedis(db,servMEMQuery);
             foreach(memK,memV; memRes.values)
             {
                 if(cMEM > to!int(memV))
@@ -539,11 +565,13 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
             string serverPort = "";
             string serverPortQ = format("HMGET %s servPort",
             cmdVals["servName"]);
-            Response portRes = db.send(serverPortQ);
+            Response portRes = execRedis(db,serverPortQ);
             foreach(k,v; portRes.values)
             {
                 serverPort = v.value;
             }
+            writefln("servportRes %s\n",portRes);
+            writefln("servport %s\n",serverPort);
             writefln("Checkpoint 6 \n");
 
             writefln("Creating container %s!\n",cName);
@@ -602,6 +630,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
     else if(cmdVals["cmd"] == "sendReq")
     {
         writefln("Execturor processign REQ!");
+        
         synchronized 
         {
             socks["agent1"].send("cmd:execget,buff:buff");
@@ -609,7 +638,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
         }
 
         string servsQ = format("HGETALL s%s",cmdVals["server"]);
-        Response servRes = db.send(servsQ);
+        Response servRes = execRedis(db,servsQ);
         if(empty(servRes))
         {
             writefln("server doesn't exist!");
@@ -626,7 +655,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
         }
 
         string consQ = format("HGETALL c%s",cmdVals["con"]);
-        Response conRes = db.send(consQ);
+        Response conRes = execRedis(db,consQ);
         if(empty(conRes))
         {
             writefln("container doesn't exist!");
@@ -666,11 +695,25 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
     {
         writefln("cAddGet set to true\n");
         cAddGet = true;
+        refreshFreedEntities(db);
     }
     else if(cmdVals["cmd"] == "cDelConfirmed")
     {
         writefln("cDelGet set to true\n");
         cDelGet = true;
+        refreshFreedEntities(db);
+    }
+    else if(cmdVals["cmd"] == "sAddConfirmed")
+    {
+        writefln("sAddGet set to true\n");
+        sAddGet = true;
+        refreshFreedEntities(db);
+    }
+    else if(cmdVals["cmd"] == "sDelConfirmed")
+    {
+        writefln("sDelGet set to true\n");
+        sDelGet = true;
+        refreshFreedEntities(db);
     }
 
 }

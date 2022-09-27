@@ -18,6 +18,7 @@ execGet2 = False
 cDelConfirmed = False
 cAddConfirmed = False
 provisioningInAction = False
+provisioningTriggered = False
 
 #global Complete
 #global Deny
@@ -540,6 +541,9 @@ def getContainerProvisionerInfo(state,serv,sObj):
                     state[11] += 1
 
         state[12] = timeouts
+        state[13] = sObj["availableCPU"]
+        state[14] = sObj["availableMEM"]
+
         
 def getContainerSenderInfo(state,cmdVals,schoice):
     index = 0
@@ -678,6 +682,7 @@ def agentLearn():
 
 def provisionerTime():
     global provisioningInAction
+    global provisioningTriggered
 
     count = 0
     firstTimeDelay = 10
@@ -685,11 +690,12 @@ def provisionerTime():
         time.sleep(5)
         clearFinishedQueries()
         count += 1
-        if(count >= 6 + firstTimeDelay): #cheesy way of running this every 30 secs
+        if(provisioningTriggered): #cheesy way of running this every 30 secs
             provisioningInAction = True
-            conProvisioningTime(13)
+            conProvisioningTime(15)
             count = 0
-            firstTimeDelay = 0
+            #irstTimeDelay = 0
+            provisioningTriggered = False
             provisioningInAction = False
 
 def agentTime():
@@ -815,9 +821,13 @@ def serverTaskAgentReward(serverExists,correctRegion):
         f.close()
         return (utilAverageMultiplier * (1 + utilAverageDiff) * reward)
 
-def calcUtilPenalty(util):
+def calcUtilPenalty(util,count):
+    softener = 1
+    if(count == 1):
+        softener = .7
+
     if(util <= .1):
-        return 1
+        return 1 * softener
     elif(util <= .3):
         return .5
     elif(util <= .6):
@@ -831,39 +841,38 @@ def calcUtilPenalty(util):
     else:
         return .3
 
-def conProvisionerReward(serv,sObj,poorDeprovision,timeouts,prevAction):
+def conProvisionerReward(serv,sObj,poorDeprovision,poorProvision,timeouts,prevAction,aCount,bCount,cCount,dCount):
     mFile = os.path.join(path_to_script, "AILOGS/provisionreward1.txt")
     f = open(mFile,"a")
     conCount = len(getContainers({serv:0})[serv])
 
     info = getServerInfo({serv:sObj})
 
-    memBase = 4
-    memBase = memBase - calcUtilPenalty(info['totalMEMUtilA']) - calcUtilPenalty(info['totalMEMUtilB']) - calcUtilPenalty(info['totalMEMUtilC']) - calcUtilPenalty(info['totalMEMUtilD'])
+    memBase = 4 - (calcUtilPenalty(info['totalMEMUtilA'],aCount) + calcUtilPenalty(info['totalMEMUtilB'],bCount) + calcUtilPenalty(info['totalMEMUtilC'],cCount) + calcUtilPenalty(info['totalMEMUtilD'],dCount))
 
-    cpuBase = 4
-    cpuBase = cpuBase - calcUtilPenalty(info['totalCPUUtilA']) - calcUtilPenalty(info['totalCPUUtilB']) - calcUtilPenalty(info['totalCPUUtilC']) - calcUtilPenalty(info['totalCPUUtilD'])
+    cpuBase = 4 - (calcUtilPenalty(info['totalCPUUtilA'],aCount) + calcUtilPenalty(info['totalCPUUtilB'],bCount) + calcUtilPenalty(info['totalCPUUtilC'],cCount) + calcUtilPenalty(info['totalCPUUtilD'],dCount))
 
-    if(poorDeprovision):
+    if(poorDeprovision or poorProvision):
         return 0
         f.write("server: " + str(serv) + " ,choice: " + str(prevAction) + " ,totalMEMUTILA: " + str(info['totalMEMUtilA']) + " ,totalMEMUTILB: " + str(info['totalMEMUtilB'])
         + " ,totalMEMUTILCs: " + str(info['totalMEMUtilC']) + " ,totalMEMUTILD: " + str(info['totalMEMUtilD']) + " ,totalCPUUTILA: " + str(info['totalCPUUtilA']) + " ,totalCPUUTILB: " + str(info['totalCPUUtilB'])
         + " ,totalCPUUTILC: " + str(info['totalCPUUtilC']) + " ,totalCPUUTILD: " + str(info['totalCPUUtilD']) + " ,conCount: " + str(conCount) + " ,reward: " + str(0) + "\n")
 
-    timeoutPenalty = 0
+    timeoutPenalty = 1
     if(timeouts <= 5):
-        timeoutPenalty = 1
+        timeoutPenalty = .95
     elif(timeouts <= 10):
-        timeoutPenalty = 2
+        timeoutPenalty = .9
     elif(timeouts <= 20):
-        timeoutPenalty = 4
+        timeoutPenalty = .8
     else:
-        timeoutPenalty = 8
+        timeoutPenalty = .5
 
     f.write("server: " + str(serv) + " ,choice: " + str(prevAction) + " ,totalMEMUTILA: " + str(info['totalMEMUtilA']) + " ,totalMEMUTILB: " + str(info['totalMEMUtilB'])
     + " ,totalMEMUTILCs: " + str(info['totalMEMUtilC']) + " ,totalMEMUTILD: " + str(info['totalMEMUtilD']) + " ,totalCPUUTILA: " + str(info['totalCPUUtilA']) + " ,totalCPUUTILB: " + str(info['totalCPUUtilB'])
-    + " ,totalCPUUTILC: " + str(info['totalCPUUtilC']) + " ,totalCPUUTILD: " + str(info['totalCPUUtilD']) + " ,conCount: " + str(conCount) + " ,reward: " + str(memBase + cpuBase - timeoutPenalty) + "\n")
-    return memBase + cpuBase - timeoutPenalty
+    + " ,totalCPUUTILC: " + str(info['totalCPUUtilC']) + " ,totalCPUUTILD: " + str(info['totalCPUUtilD']) + " ,conCount: " + str(conCount) + " ,reward: " + str((memBase + cpuBase) * timeoutPenalty) + "\n")
+    
+    return (memBase + cpuBase) * timeoutPenalty
 
 def getConOfLowestUtilType(serv,mtype):
     #todo figure this out
@@ -916,6 +925,7 @@ def execConProvChoice(choice,state,serv,sObj):
 
 
     poorDeprovision = False
+    poorProvision = False
     waitadd = False
     waitdel = False
     #cmd:createCon,servName:s1,servPort:8000,conName:c1,conPort:9000,conType:C,buff:buff
@@ -924,15 +934,23 @@ def execConProvChoice(choice,state,serv,sObj):
     print("EXECCONPROVECHOICE HERE, choice " + str(choice))
     with execlock2:
         if(choice == 1):
+            if(state[13] < 2 or state[14] < 1):
+                poorProvision = True
             cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:A,agent:y,buff:buff"
             waitadd = True
         elif(choice == 2):
+            if(state[13] < 2 or state[14] < 2):
+                poorProvision = True
             cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:B,agent:y,buff:buff"
             waitadd = True
         elif(choice == 3):
+            if(state[13] < 4 or state[14] < 4):
+                poorProvision = True
             cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:C,agent:y,buff:buff"
             waitadd = True
         elif(choice == 4):
+            if(state[13] < 8 or state[14] < 8):
+                poorProvision = True
             cmd = f"cmd:createCon,servName:{serv},servPort:{servPort},conName:c1,conPort:9000,conType:D,agent:y,buff:buff"
             waitadd = True
         elif(choice == 5):
@@ -964,10 +982,10 @@ def execConProvChoice(choice,state,serv,sObj):
             cmd = f"cmd:deleteCon,servName:{serv},servPort:{servPort},conName:{con},conType:D,buff:buff"
             waitdel = True
         else:
-            return False
+            return False,False
 
-        if(not poorDeprovision):
-            print("poorDeprovision: " + str(poorDeprovision) + " ,cAddConfirmed: " + str(cAddConfirmed) +" , cmd: " + str(cmd))
+        if(not poorDeprovision and not poorProvision):
+            print("poorDeprovision: " + str(poorDeprovision) + "poorProvision:" + str(poorProvision) + " ,cAddConfirmed: " + str(cAddConfirmed) +" , cmd: " + str(cmd))
             execSock2.sendall(cmd.encode())
 
             #while not execGet2:
@@ -980,7 +998,7 @@ def execConProvChoice(choice,state,serv,sObj):
                 waitDel()
 
     print("EXECCONPROVECHOICE HERE2, choice " + str(choice))
-    return poorDeprovision
+    return poorDeprovision,poorProvision
 
 
 def scheduleReward1(choices,servNames,servObjs,region):
@@ -1004,30 +1022,30 @@ def scheduleReward1(choices,servNames,servObjs,region):
     f.close()
     return rewards,properlyProvisioned
 
-def scheduleReward2(choices,conNames,conObjects,mtype,correctlyChosen):
-    rewards = []
+def scheduleReward2(choices,cons,mtype,correctlyChosen):
+    rewards = {}
     properlyProvisioned = {}
     mFile = os.path.join(path_to_script, "AILOGS/schedreward2.txt")
     f = open(mFile,"a")
 
-    maxReward = len(conNames) * 2
-    denominator = (len(conNames) - 1)
+    maxReward = len(cons) * 2
+    denominator = (len(cons) - 1)
     if(denominator == 0):
         denominator = 1
     minReward = (maxReward  * .6)/denominator
 
-    for i in range(0,len(choices)):
-        rewards.append(0)
+    for cons,cObj in cons.items():
+        rewards[con] = 0
         #properlyProvisioned[conNames[i]] = 0
-        if(choices[i] == 1 and conObjects[i]["conType"] == mtype):
-            rewards[i] = maxReward
+        if(choices[con] == 1 and cons[con]["conType"] == mtype):
+            rewards[con] = maxReward
         #    properlyProvisioned[conNames[i]] = 1
-        elif(choices[i] == 0 and conObjects[i]["conType"] != mtype):
-            rewards[i] = minReward
+        elif(choices[con] == 0 and cons[con]["conType"] != mtype):
+            rewards[con] = minReward
          #   properlyProvisioned[conNames[i]] = 1
 
-        f.write("con: " + str(conNames[i]) + " ,choice: " + str(choices[i]) + " ,conType: " + str(conObjects[i]["conType"]) 
-        + " ,taskType: " + str(mtype) + " ,reward: " + str(rewards[i]) + " ,correctlyChosen: " + str(correctlyChosen) + "\n")
+        f.write("con: " + str(con) + " ,choice: " + str(choices[con]) + " ,conType: " + str(cons[con]["conType"]) 
+        + " ,taskType: " + str(mtype) + " ,reward: " + str(rewards[con]) + " ,correctlyChosen: " + str(correctlyChosen) + "\n")
 
     f.close()
     return rewards,properlyProvisioned
@@ -1262,7 +1280,7 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
     cons = getContainers({str(sChoice):0})[str(sChoice)]
     #print(cons)
 
-    layer2List = []
+    layer2List = {}
     conObjs = []
     conNames = []
     #j = 0
@@ -1272,21 +1290,21 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
         conObjs.append(conObj)
         conNames.append(con)
         #print("ConObj: " + str(conObj) + " ,state2: " + str(state2) + " ,index: " + str(j))
-        layer2List.append(state2)
+        layer2List[con] = state2
         #j += 1
 
     #print("layer2list 1 : " + str(layer2List))
     #print(layer2List)
-    choices2,chosenCons,chosenConObjs,chosenConNames = scheduleAgent.act2(layer2List,conObjs,conNames)
+    choices2,chosenConStates,chosenCons = scheduleAgent.act2(layer2List,conObjs,conNames)
     #print(chosenCons)
 
-    layer3List = []
-    for i in range(0,len(chosenConObjs)):
+    layer3List = {}
+    for con,cObj in chosenCons.items():
         state3 = np.zeros(l3_size)
-        scheduleLayer3Info(state3,chosenConObjs[i],cons)
-        layer3List.append(state3)
+        scheduleLayer3Info(state3,cObj,cons)
+        layer3List[con] = state3
 
-    choices3,chosenCon = scheduleAgent.act3(layer3List,chosenConNames)
+    choices3,chosenCon = scheduleAgent.act3(layer3List,chosenCons)
 
     #chosenConStr = "c" + str(int(chosenCon))
     #print(chosenConStr)
@@ -1320,16 +1338,16 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
         #get consNextState
         #todo send decision to executor
         correctlyChosen = False
-        for i in range(0,len(choices2)):
-            if(choices2[i] == 1 and (conObjs[i]["conType"]) == cmdVals['type']):
+        for con,dimlist in choices2.items():
+            if(choices2[con] == 1 and (chosenCons[con]["conType"]) == cmdVals['type']):
                 correctlyChosen = True
-            elif(choices2[i] == 1 and (conObjs[i]["conType"]) != cmdVals['type']):
+            elif(choices2[con] == 1 and (chosenCons[con]["conType"]) != cmdVals['type']):
                 correctlyChosen = False
                 break
 
-        rewards2,properlyProvisioned = scheduleReward2(choices2,conNames,conObjs,cmdVals['type'],correctlyChosen)
+        rewards2,properlyProvisioned = scheduleReward2(choices2,cons,cmdVals['type'],correctlyChosen)
         cons2 = getContainers({str(sChoice):0})[str(sChoice)]
-        consNextState = []
+        consNextState = {}
         chosenConNextState = ""
         #chosenConObjs = []
         #chosenConNames = []
@@ -1345,13 +1363,13 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
                 scheduleLayer3Info(state3,chosenConObj,cons2)
                 chosenConNextState = state3 
             
-            consNextState.append(state2)
+            consNextState[con] = state2
 
-        chosenConsNextState = []
-        for i in range(0,len(chosenConObjs)):
+        chosenConsNextState = {}
+        for con,cObj in chosenCons.items():
             state3 = np.zeros(l3_size)
-            scheduleLayer3Info(state3,chosenConObjs[i],cons2)
-            chosenConsNextState.append(state3)
+            scheduleLayer3Info(state3,cObj,cons2)
+            chosenConsNextState[con] = state3
     
 
         #rewards1 = scheduleReward1(choices1,servNames,servObjs,cmdVals['region'])
@@ -1379,10 +1397,12 @@ def conProvisioningTime(size): #todo complete, double check the parallelism on t
     global prevServActs
     global prevServRewards
     global prevServPDeprovs
+    global prevServPProvs
     
     servs = getServers()
     servActs = {}
     poorDeprovisions = {}
+    poorProvisions = {}
     #for serv,state in prevServStates.items():
     #    choice = conProvisioningAgent.act(state)
     #    servActs[serv] = choice
@@ -1399,8 +1419,9 @@ def conProvisioningTime(size): #todo complete, double check the parallelism on t
         servStates[serv] = state
         choice = conProvisioningAgent.act(state)
         servActs[serv] = choice
-        pDeprovision = execConProvChoice(choice,state,serv,sObj)
+        pDeprovision,pProvision = execConProvChoice(choice,state,serv,sObj)
         poorDeprovisions[serv] = pDeprovision
+        poorProvisions[serv] = pProvision
 
         if(prevServActs == "none" or len(prevServActs) == 0):
             prevAction = "none"
@@ -1413,7 +1434,12 @@ def conProvisioningTime(size): #todo complete, double check the parallelism on t
         else:
             poorDeprov = prevServPDeprovs[serv]
 
-        reward = conProvisionerReward(serv,sObj,poorDeprov,state[12],prevAction)
+        if(len(prevServPProvs) == 0):
+            poorProv = False
+        else:
+            poorProv = prevServPProvs[serv]
+
+        reward = conProvisionerReward(serv,sObj,poorDeprov,poorProv,state[12],prevAction,state[8],state[9],state[10],state[11])
         servRewards[serv] = reward
         if(serv in prevServStates.keys() and (prevServActs != "none" and len(prevServActs) > 0)):
             conProvisioningAgent.remember(prevServStates[serv],prevServActs[serv],prevServRewards[serv],state,False)
@@ -1422,6 +1448,7 @@ def conProvisioningTime(size): #todo complete, double check the parallelism on t
     prevServStates = servStates
     prevServRewards = servRewards
     prevServPDeprovs = poorDeprovisions
+    prevServPProvs = poorProvisions
 
 
 
@@ -1441,6 +1468,7 @@ def handleInput(dat):
     global episodes3
     global curTime
     global provisioningInAction
+    global provisioningTriggered
 
     cmdVals = processInput(dat)
     if len(cmdVals) == 0:
@@ -1465,6 +1493,9 @@ def handleInput(dat):
     elif cmdVals['cmd'] == "cDelConfirmed":
         print("set cDelConfirmed to true!!!\n")
         cDelConfirmed = True
+    elif cmdVals['cmd'] == "triggerprovision":
+        print("set triggerprovision to true!!!\n")
+        provisioningTriggered = True
     
 def second_passed(prevTime):
     return time.time() - prevTime >= 1
@@ -1579,7 +1610,7 @@ scheduleAgent = ScheduleNet(12,8,4,mFile3,mFile4,mFile5) #the dims for servs and
 
 episodes4 = 0
 mFile6 = os.path.join(path_to_script, "AILOGS/conProv_loss.txt")
-conProvisioningAgent = DQNAgent(13,9,mFile6)  #A/B/C/D CPU/MEM util (x8),A/B/C/D con count (x4), timed out tasks(x1) 
+conProvisioningAgent = DQNAgent(15,9,mFile6)  #A/B/C/D CPU/MEM util (x8),A/B/C/D con count (x4), timed out tasks(x1),Available CPU,Available Mem
 prevServStates = {}
 servs = getServers()
 for serv,sObj in servs.items():
@@ -1587,6 +1618,7 @@ for serv,sObj in servs.items():
 prevServActs = "none" 
 prevServRewards = {}
 prevServPDeprovs = {}
+prevServPProvs = {}
 
 mt = threading.Thread(target=runServer,args=())
 mt.start()

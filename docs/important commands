@@ -1,3 +1,5 @@
+CONNECT TO REDIS AS ROOT
+
 Force Update pacman (for linux stuff)
 Sudo pacman -Sy -dd pacman
 

@@ -40,16 +40,22 @@ void handleInput(string[string] cmdVals,Redis db,Socket[string] socks)
         cmdVals["servPort"]);
         db.send(freePortQuery);
 
-        string regionServQuery = format("SADD %s_servers %s",
-        cmdVals["region"],cmdVals["servName"]);
-        db.send(regionServQuery);
-
         string query = format("HMSET %s servPort \"%s\" servCPU \"%s\" servMEM \"%s\" region \"%s\" availableCPU \"%s\" availableMEM \"%s\"",
             cmdVals["servName"],cmdVals["servPort"],cmdVals["servCPU"],cmdVals["servMem"],cmdVals["region"],cmdVals["servCPU"],cmdVals["servMem"]);
         
         db.send(query);
 
+        string regionServQuery = format("SADD %s_servers %s",
+        cmdVals["region"],cmdVals["servName"]);
+        db.send(regionServQuery);
+
         writefln("server %s saved!\n",cmdVals["servName"]);
+
+        synchronized 
+        {
+            socks["exec"].send("cmd:sAddConfirmed,buff:buff");
+            writefln("sent to agent1!!!!!\n");
+        }
     }
     else if(cmdVals["type"] == "serverdel")
     {
@@ -116,6 +122,12 @@ void handleInput(string[string] cmdVals,Redis db,Socket[string] socks)
         db.send(freeServQuery);
 
         writefln("server %s deleted!\n",cmdVals["servName"]);
+
+        synchronized 
+        {
+            socks["exec"].send("cmd:sDelConfirmed,buff:buff");
+            writefln("sent to agent1!!!!!\n");
+        }
     }
     else if(cmdVals["type"] == "containeradd")
     {
