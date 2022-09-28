@@ -42,7 +42,7 @@ class ScheduleNet(nn.Module):
         choices = {}
         chosenCons = {}
         chosenConStates = {}
-        for con,containerTaskDimList in layer2List.items():
+        for con,containerTaskDimList in layer2list.items():
             top_index,act_vals = self.containerAgent1.actSurrogate(containerTaskDimList)
             
             if(top_index == -1):#need to do this due to pytorch >=.5 quirk
@@ -67,6 +67,7 @@ class ScheduleNet(nn.Module):
 
     def act3(self,layer3list,chosenCons):
         maxActVal = 0
+        maxCon = list(chosenCons.keys())[0]
         choices = {}
         for con,chosencontainerTaskDimList in layer3list.items():
             top_index,act_vals = self.containerAgent2.actSurrogate(chosencontainerTaskDimList)
@@ -74,10 +75,11 @@ class ScheduleNet(nn.Module):
                 currentVal = act_vals
             else:
                 currentVal = act_vals[top_index]
+
             choices[con] = top_index
             if(currentVal > maxActVal):
                 maxActVal = currentVal
-                maxCon = con
+                maxCon = con #run doesn't go to here sometimes, fixing by making the initial max really low
 
         #print(chosencontainerTaskDimList[maxIndex])
         return choices,maxCon

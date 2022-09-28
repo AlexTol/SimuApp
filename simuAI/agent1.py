@@ -1034,7 +1034,7 @@ def scheduleReward2(choices,cons,mtype,correctlyChosen):
         denominator = 1
     minReward = (maxReward  * .6)/denominator
 
-    for cons,cObj in cons.items():
+    for con,cObj in cons.items():
         rewards[con] = 0
         #properlyProvisioned[conNames[i]] = 0
         if(choices[con] == 1 and cons[con]["conType"] == mtype):
@@ -1295,7 +1295,7 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
 
     #print("layer2list 1 : " + str(layer2List))
     #print(layer2List)
-    choices2,chosenConStates,chosenCons = scheduleAgent.act2(layer2List,conObjs,conNames)
+    choices2,chosenConStates,chosenCons = scheduleAgent.act2(layer2List,cons)
     #print(chosenCons)
 
     layer3List = {}
@@ -1379,9 +1379,9 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
         scheduleAgent.remember(2,layer2List,choices2,rewards2,consNextState)
 
         reward3 = scheduleReward3(chosenConNextState,chosenCon)
-        rewards3 = []
-        for i in range(0,len(chosenCons)):
-            rewards3.append(reward3)
+        rewards3 = {}
+        for con,cObj in chosenCons.items():
+            rewards3[con] = reward3
 
         scheduleAgent.remember(3,layer3List,choices3,rewards3,chosenConsNextState) #todo look into reforming this
 
