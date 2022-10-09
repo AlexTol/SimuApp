@@ -79,10 +79,12 @@ def switchProvisioner(rewards):
 
     triggerRatio = numerator/len(rewards)
     print("triggerRatio : " + str(triggerRatio))
-    if(triggerRatio > .9):
+    if(triggerRatio > 0):
         inARow += 1
-        if(inARow == 10):
+        if(inARow >= 0):
             schedulerWorking = True
+    else:
+        inARow = 0
 
 def correctConSelect(chosenServ,state):
     #get the server
@@ -284,8 +286,15 @@ def getEntityServerUtilizationType(cons,rtype,mtype):
     typeResource = 0
 
     for con,conObj in cons.items():
-        if(conObj["conType"] == rtype):
-            typeResource += float(conObj[f"con{mtype}"])
+        try:
+            if(conObj["conType"] == rtype):
+                typeResource += float(conObj[f"con{mtype}"])
+        except:
+            print("current con not available \n" +
+            " con: " + str(con) + " " + str(conObj))
+
+    if(typeResource == 0):
+        return 0.0
 
     curTasks = getTaskData()
     #print("curTasks")
@@ -295,14 +304,15 @@ def getEntityServerUtilizationType(cons,rtype,mtype):
     if(not curTasks):
         return 0.0
 
-    try:
-        for t,tObj in curTasks.items():
+    for t,tObj in curTasks.items():
+        try:
             if(tObj["con"] in cons.keys()):
                 conUsage += float(tObj[f"t{mtype}"])
-    except:
-        print("something went wrong here")
-        print(curTasks)
-        return 0.0
+        except:
+            print("current task not available \n" +
+            " currentTasks: " + str(curTasks) + "\n" +
+            + " task in question: " + str(t) + " " + str(tObj))
+
 
     return conUsage/typeResource
 
@@ -500,26 +510,27 @@ def scheduleLayer2Info(state,cmdVals,con,cObj):
         state[index] = cTypeReps[i]
         index += 1
 
-def scheduleLayer3Info(state,chosenConObj,sCons):
+def scheduleLayer3Info(state,chosenCon,chosenConObj,sCons):
     index = 0
-    state[index] = getConUtil(chosenConObj["conPort"],"CPU")
+    conNum = chosenCon.split("c")[1]
+    state[index] = getConUtil2(conNum,"CPU")
     index += 1
 
     typeUtilCPU = []
     for cName,cObj in sCons.items():
         if(cObj["conType"] == chosenConObj["conType"]):
-            typeUtilCPU.append(getConUtil(cObj["conPort"],"CPU"))
+            typeUtilCPU.append(getConUtil2(cName.split("c")[1],"CPU"))
     typeUtilCPUDiff = averageDif(typeUtilCPU)
     state[index] = typeUtilCPUDiff
     index +=1
 
-    state[index] = getConUtil(chosenConObj["conPort"],"MEM")
+    state[index] = getConUtil2(conNum,"MEM")
     index += 1
 
     typeUtilMEM = []
     for cName,cObj in sCons.items():
         if(cObj["conType"] == chosenConObj["conType"]):
-            typeUtilMEM.append(getConUtil(cObj["conPort"],"MEM"))
+            typeUtilMEM.append(getConUtil2(cName.split("c")[1],"MEM"))
     typeUtilMEMDiff = averageDif(typeUtilMEM)
     state[index] = typeUtilMEMDiff
     index +=1
@@ -601,9 +612,9 @@ def getContainerSenderInfo(state,cmdVals,schoice):
             state[index] = 1 if(cObj["conType"] == "D") else 0
             index += 1
 
-            state[index] = getConUtil(cObj["conPort"],"MEM")
+            state[index] = getConUtil2(con.split("c")[1],"MEM")
             index += 1
-            state[index] = getConUtil(cObj["conPort"],"CPU")
+            state[index] = getConUtil2(con.split("c")[1],"CPU")
             index += 1
 
             #if it exists
@@ -652,6 +663,32 @@ def getConUtil(port,rtype):
             memutil = 0
 
         return memutil
+
+def getConUtil2(conNum,rType):
+    currReqs = r.smembers("currentRequests")
+    cpuUtilNum = 0
+    memUtilNum = 0
+    for req in currReqs:
+        mReq = r.hgetall(req.decode("utf-8"))
+        reqObj = decodeObj(mReq)
+        #print("reqObj " + str(reqObj))
+        #print("conNum: " + str(conNum))
+        if(len(reqObj) != 0):
+            if(reqObj["con"] == conNum):
+                cpuUtilNum += float(reqObj["tCPU"])
+                memUtilNum += float(reqObj["tMEM"])
+
+    con = r.hgetall("c" + str(conNum))
+    mCon = decodeObj(con)
+
+    if(len(mCon) != 0):
+        cpuUtil = cpuUtilNum/(float(mCon["conCPU"]))
+        memUtil = memUtilNum/(float(mCon["conMEM"]))
+    else: #if con no longer exists then util is zero
+        cpuUtil = 0
+        memUtil = 0
+
+    return (cpuUtil + memUtil)/2
 
 def displayEnvState():
     taskData = getTaskData()
@@ -967,10 +1004,10 @@ def getConOfLowestUtilType(serv,mtype):
         if(cObj["conType"] != mtype):
             continue
 
-        cpuUtil = getConUtil(cObj["conPort"],"CPU")
+        cpuUtil = getConUtil2(con.split("c")[1],"CPU")
         print("conUtil CPU : " + str(cpuUtil))
 
-        memUtil = getConUtil(cObj["conPort"],"MEM")
+        memUtil = getConUtil2(con.split("c")[1],"MEM")
         print("conUtil MEM : " + str(memUtil))
         
         util = (cpuUtil + memUtil)/2
@@ -1113,7 +1150,7 @@ def scheduleReward2(choices,cons,mtype,correctlyChosen):
     denominator = (len(cons) - 1)
     if(denominator == 0):
         denominator = 1
-    minReward = 2.1 #(maxReward  * .6)/denominator
+    minReward = 2.2 #(maxReward  * .6)/denominator
 
     for con,cObj in cons.items():
         rewards[con] = 0
@@ -1136,9 +1173,12 @@ def scheduleReward3(chosenConState,chosenConName):
     mFile = os.path.join(path_to_script, "AILOGS/schedreward3.txt")
     f = open(mFile,"a")
 
-
-    memUtilDiff = chosenConState[3]
-    cpuUtilDiff = chosenConState[1]
+    if(chosenConState != ""):
+        memUtilDiff = chosenConState[3]
+        cpuUtilDiff = chosenConState[1]
+    else:
+        memUtilDiff = 0
+        cpuUtilDiff = 0
 
 
     if memUtilDiff <= .1:
@@ -1382,7 +1422,7 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
     layer3List = {}
     for con,cObj in chosenCons.items():
         state3 = np.zeros(l3_size)
-        scheduleLayer3Info(state3,cObj,cons)
+        scheduleLayer3Info(state3,con,cObj,cons)
         layer3List[con] = state3
 
     choices3,chosenCon = scheduleAgent.act3(layer3List,chosenCons)
@@ -1446,7 +1486,7 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
                 state3 = np.zeros(l3_size)
                 chosenConObj = conObj
                 #chosenConObjs.append(chosenConObj)
-                scheduleLayer3Info(state3,chosenConObj,cons2)
+                scheduleLayer3Info(state3,chosenCon,chosenConObj,cons2)
                 chosenConNextState = state3 
             
             consNextState[con] = state2
@@ -1454,7 +1494,7 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
         chosenConsNextState = {}
         for con,cObj in chosenCons.items():
             state3 = np.zeros(l3_size)
-            scheduleLayer3Info(state3,cObj,cons2)
+            scheduleLayer3Info(state3,con,cObj,cons2)
             chosenConsNextState[con] = state3
     
 
@@ -1600,7 +1640,7 @@ def runServer():
     # this has no effect, why ?
     #server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind(("0.0.0.0", PORT))
-    server_socket.listen(10)
+    server_socket.listen(1000)
  
     # Add server socket to the list of readable connections
     CONNECTION_LIST.append(server_socket)
@@ -1642,7 +1682,7 @@ def runServer():
                  
                 # client disconnected, so remove from socket list
                 except:
-                    broadcast_data(sock, "Client (%s, %s) is offline" % addr)
+                    #broadcast_data(sock, "Client (%s, %s) is offline" % addr)
                     print("Client (%s, %s) is offline" % addr)
                     sock.close()
                     CONNECTION_LIST.remove(sock)
@@ -1659,9 +1699,9 @@ print("agent1 to orch!\n")
 orchSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 orchSock.connect(('localhost', 7002))
 orchSock.setblocking(0)
-obsSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-obsSock.connect(('localhost', 7001))
-obsSock.setblocking(0)
+#obsSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#obsSock.connect(('localhost', 7001))
+#obsSock.setblocking(0)
 execSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 execSock.connect(('localhost', 7000))
 execSock.setblocking(0)

@@ -257,6 +257,11 @@ void handleInput(string[string] cmdVals,Redis db,Socket[string] socks)
             cmdVals["tid"],cmdVals["tType"],cmdVals["region"],cmdVals["completed"],cmdVals["elapsed"],cmdVals["timeout"],cmdVals["rejected"],cmdVals["server"],cmdVals["con"],cmdVals["tCPU"],cmdVals["tMEM"]);
             writefln("hmset query %s\n",reqQuery);
             db.send(reqQuery);
+
+            synchronized
+            {
+                socks["exec"].send("cmd:reqConfirmed,buff:buff");
+            }
     }
     else {
         writefln("no match! %s \n",cmdVals);
@@ -280,7 +285,7 @@ void main(string[] args)
     listener.listen(10);
     writefln("Listening on port %d.", port);
 
-    enum MAX_CONNECTIONS = 120;
+    enum MAX_CONNECTIONS = 1200;
     // Room for listener.
     auto socketSet = new SocketSet(MAX_CONNECTIONS + 1);
     Socket[] reads;
@@ -358,7 +363,17 @@ void main(string[] args)
                 if (sn)
                     sn.close();
             }
-            sn = listener.accept();
+
+            try
+            {
+                sn = listener.accept();
+            }
+            catch(SocketException e)
+            {
+                //writefln("%s\n",e);
+                continue;
+            }
+            
             assert(sn.isAlive);
             assert(listener.isAlive);
 

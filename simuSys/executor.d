@@ -14,6 +14,7 @@ import std.parallelism;
 import std.concurrency;
 import core.atomic;
 import core.time : Duration, msecs, hnsecs, nsecs;
+import core.thread.threadbase;
 import std.net.curl;
 import std.json;
 import simuSys.classes.workload;
@@ -30,7 +31,32 @@ shared bool cAddGet = false;
 shared bool cDelGet = false;
 shared bool sAddGet = false;
 shared bool sDelGet = false;
+shared bool reqGet = false;
 Socket[string] socks;
+
+void retryThreadStartUntilSuccess(Redis redis,string[string] cmdVals,Socket[string] socks)
+{
+    bool noStart = true;
+    while(noStart)
+    {
+        try
+        {
+            auto t = task!handleInput(redis,cmdVals,socks);
+            t.executeInNewThread();
+            //t.workForce;
+            noStart = false;
+        }
+        catch (ThreadError e)
+        {
+            writefln("Error with threading: %s ",e.message());
+            writefln("Error with threading Trace: %s ",e.info);
+            foreach(item; e.info)
+            {
+                writefln("%s",item);
+            }
+        }
+    }
+}
 
 void waitSignal(shared ref bool sig)
 {
@@ -689,7 +715,12 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
         Mtask t = new Mtask(cmdVals["id"],cmdVals["type"],to!float(cmdVals["timetocomplete"]),cmdVals["region"],to!int(cmdVals["deps"]));
         SysTime startTime = Clock.currTime();
 
-        sendRequest(to!int(cmdVals["port"]), t,startTime,socks["obs"],db,cmdVals);
+        synchronized
+        {
+            sendRequest(to!int(cmdVals["port"]), t,startTime,socks["obs"],db,cmdVals);
+            waitSignal(reqGet);
+            reqGet = false;
+        }
     }
     else if(cmdVals["cmd"] == "cAddConfirmed")
     {
@@ -715,6 +746,11 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
         sDelGet = true;
         refreshFreedEntities(db);
     }
+    else if(cmdVals["cmd"] == "reqConfirmed")
+    {
+        writefln("reqGet set to true\n");
+        reqGet = true;
+    }
 
 }
 
@@ -734,7 +770,7 @@ void main(string[] args)
     listener.listen(10);
     writefln("Listening on port %d.", port);
 
-    enum MAX_CONNECTIONS = 120;
+    enum MAX_CONNECTIONS = 1200;
     // Room for listener.
     auto socketSet = new SocketSet(MAX_CONNECTIONS + 1);
     Socket[] reads;
@@ -808,11 +844,28 @@ void main(string[] args)
                             writefln("%s\n",socks);
                             socks["orch"].send("cmd:exFullyConnected,buff:buff");
                         }
+                        else if(cmdVals["cmd"] == "blank")
+                        {
+                            writefln("Skip!\n");
+                        }
                         else
                         {
-                            auto t = task!handleInput(redis,cmdVals,socks);
-                            t.executeInNewThread();
-                            //t.workForce;
+                            try
+                            {
+                                auto t = task!handleInput(redis,cmdVals,socks);
+                                t.executeInNewThread();
+                                //t.workForce;
+                            }
+                            catch (ThreadError e)
+                            {
+                                writefln("Error with threading: %s ",e.message());
+                                writefln("Error with threading Trace: %s ",e.info);
+                                foreach(item; e.info)
+                                {
+                                    writefln("%s",item);
+                                }
+                                retryThreadStartUntilSuccess(redis,cmdVals,socks);
+                            }
                         }
 
                     }
