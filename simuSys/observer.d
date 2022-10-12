@@ -10,6 +10,14 @@ import std.parallelism;
 
 Socket[string] socks;
 
+Response execRedis(Redis db,string query)
+{
+    synchronized
+    {
+        return db.send(query);
+    }
+}
+
 string[string] processInput(string input)
 {
     string[string] cmdVals;
@@ -34,20 +42,20 @@ void handleInput(string[string] cmdVals,Redis db,Socket[string] socks)
     {
         string freeServQuery = format("SREM free_servers %s",
         cmdVals["servName"][1..$]);
-        db.send(freeServQuery);
+        execRedis(db,freeServQuery);
 
         string freePortQuery = format("SREM free_Ports %s",
         cmdVals["servPort"]);
-        db.send(freePortQuery);
+        execRedis(db,freePortQuery);
 
         string query = format("HMSET %s servPort \"%s\" servCPU \"%s\" servMEM \"%s\" region \"%s\" availableCPU \"%s\" availableMEM \"%s\"",
             cmdVals["servName"],cmdVals["servPort"],cmdVals["servCPU"],cmdVals["servMem"],cmdVals["region"],cmdVals["servCPU"],cmdVals["servMem"]);
         
-        db.send(query);
+        execRedis(db,query);
 
         string regionServQuery = format("SADD %s_servers %s",
         cmdVals["region"],cmdVals["servName"]);
-        db.send(regionServQuery);
+        execRedis(db,regionServQuery);
 
         writefln("server %s saved!\n",cmdVals["servName"]);
 
@@ -61,13 +69,13 @@ void handleInput(string[string] cmdVals,Redis db,Socket[string] socks)
     {
         string conQuery = format("SMEMBERS %s_containers",
         cmdVals["servName"]);
-        Response containers = db.send(conQuery);
+        Response containers = execRedis(db,conQuery);
 
         foreach(k,v; containers.values)
         {
             string freeConPortQuery = format("HMGET %s conPort",
             v.value);
-            Response conPorts = db.send(freeConPortQuery);
+            Response conPorts = execRedis(db,freeConPortQuery);
 
             string sdelConQuery = format("SREM %s_containers %s",
             cmdVals["servName"],v.value);
@@ -78,48 +86,48 @@ void handleInput(string[string] cmdVals,Redis db,Socket[string] socks)
             string freeConQuery = format("SADD free_containers %s",
             v.value[1..$]);
 
-            db.send(sdelConQuery);
-            db.send(delConQuery);
-            db.send(freeConQuery);
+            execRedis(db,sdelConQuery);
+            execRedis(db,delConQuery);
+            execRedis(db,freeConQuery);
 
             //free up container ports
             foreach(k1,v1; conPorts.values)
             {
                 string freePortQuery1 = format("SADD free_Ports %s",
                 v1.value);
-                db.send(freePortQuery1);
+                execRedis(db,freePortQuery1);
             }
         }
 
         //free up server ports
         string freeServPortQuery = format("HMGET %s servPort",
         cmdVals["servName"]);
-        Response servPorts = db.send(freeServPortQuery);
+        Response servPorts = execRedis(db,freeServPortQuery);
         foreach(k2,v2; servPorts.values)
         {
             string freePortQuery2 = format("SADD free_Ports %s",
             v2.value);
-            db.send(freePortQuery2);
+            execRedis(db,freePortQuery2);
         }
 
         string getRegionQuery = format("HMGET %s region",
         cmdVals["servName"]);
-        Response regions = db.send(getRegionQuery);
+        Response regions = execRedis(db,getRegionQuery);
         foreach(k3,v3; regions.values)
         {
             string regionServQuery = format("SREM %s_servers %s",
             v3.value,cmdVals["servName"]);
-            db.send(regionServQuery);
+            execRedis(db,regionServQuery);
         }
 
         string query = format("DEL %s",
             cmdVals["servName"]);
         
-        db.send(query);
+        execRedis(db,query);
 
         string freeServQuery = format("SADD free_servers %s",
         cmdVals["servName"][1..$]);
-        db.send(freeServQuery);
+        execRedis(db,freeServQuery);
 
         writefln("server %s deleted!\n",cmdVals["servName"]);
 
@@ -131,51 +139,52 @@ void handleInput(string[string] cmdVals,Redis db,Socket[string] socks)
     }
     else if(cmdVals["type"] == "containeradd")
     {
-        string freeConQuery = format("SREM free_containers %s",
-        cmdVals["conName"][1..$]);
-        writefln("freeconquery : %s\n",freeConQuery);
-        db.send(freeConQuery);
-
-        string freePortQuery = format("SREM free_Ports %s",
-        cmdVals["conPort"]);
-        db.send(freePortQuery);
-
-        //deducts available cpu from server, need to change command to send conCPU
-        int availableCPU = 0;
-        string servCPUQuery = format("HMGET %s availableCPU",
-        cmdVals["servName"]);
-        Response cpuRes = db.send(servCPUQuery);
-        foreach(cpuK,cpuV; cpuRes.values)
-        {
-            availableCPU = to!int(cpuV) - to!int(cmdVals["conCPU"]);
-        }
-
-        float availableMEM = 0;
-        string servMEMQuery = format("HMGET %s availableMEM",
-        cmdVals["servName"]);
-        Response memRes = db.send(servMEMQuery);
-        foreach(memK,memV; memRes.values)
-        {
-            availableMEM  = to!float(to!string(memV)) - to!float(cmdVals["conMEM"]);
-        }
-
-        string serverEditQuery = format("HMSET %s availableCPU %s availableMEM %s",
-            cmdVals["servName"],availableCPU,availableMEM);
-        db.send(serverEditQuery);
-
-        string query = format("HMSET %s conPort \"%s\" conType \"%s\" servName \"%s\" servPort \"%s\" conCPU \"%s\" conMEM \"%s\"",
-            cmdVals["conName"],cmdVals["conPort"],cmdVals["conType"],cmdVals["servName"],cmdVals["servPort"],cmdVals["conCPU"],cmdVals["conMEM"]);
-
-        db.send(query);
-
-        string serverConQuery= format("SADD %s_containers %s",
-        cmdVals["servName"],cmdVals["conName"]);
-        db.send(serverConQuery);
-
-        writefln("scontainer %s saved!\n",cmdVals["conName"]);
-
         synchronized 
         {
+            string freeConQuery = format("SREM free_containers %s",
+            cmdVals["conName"][1..$]);
+            writefln("freeconquery : %s\n",freeConQuery);
+            execRedis(db,freeConQuery);
+
+            string freePortQuery = format("SREM free_Ports %s",
+            cmdVals["conPort"]);
+            writefln("freeportquery : %s\n",freePortQuery);
+            execRedis(db,freePortQuery);
+
+            //deducts available cpu from server, need to change command to send conCPU
+            int availableCPU = 0;
+            string servCPUQuery = format("HMGET %s availableCPU",
+            cmdVals["servName"]);
+            Response cpuRes = execRedis(db,servCPUQuery);
+            foreach(cpuK,cpuV; cpuRes.values)
+            {
+                availableCPU = to!int(cpuV) - to!int(cmdVals["conCPU"]);
+            }
+
+            float availableMEM = 0;
+            string servMEMQuery = format("HMGET %s availableMEM",
+            cmdVals["servName"]);
+            Response memRes = execRedis(db,servMEMQuery);
+            foreach(memK,memV; memRes.values)
+            {
+                availableMEM  = to!float(to!string(memV)) - to!float(cmdVals["conMEM"]);
+            }
+
+            string serverEditQuery = format("HMSET %s availableCPU %s availableMEM %s",
+                cmdVals["servName"],availableCPU,availableMEM);
+            execRedis(db,serverEditQuery);
+
+            string query = format("HMSET %s conPort \"%s\" conType \"%s\" servName \"%s\" servPort \"%s\" conCPU \"%s\" conMEM \"%s\"",
+                cmdVals["conName"],cmdVals["conPort"],cmdVals["conType"],cmdVals["servName"],cmdVals["servPort"],cmdVals["conCPU"],cmdVals["conMEM"]);
+
+            execRedis(db,query);
+
+            string serverConQuery= format("SADD %s_containers %s",
+            cmdVals["servName"],cmdVals["conName"]);
+            execRedis(db,serverConQuery);
+
+            writefln("scontainer %s saved!\n",cmdVals["conName"]);
+
             if(cmdVals["agent"] != "no")
             {
                 socks["agent1"].send("cmd:cAddConfirmed,buff:buff");
@@ -187,60 +196,61 @@ void handleInput(string[string] cmdVals,Redis db,Socket[string] socks)
     }//todo write server edit for containerdel and edit the commands in executor
     else if(cmdVals["type"] == "containerdel")
     {
-        string setDelQuery = format("SREM %s_containers %s", //todo maybe this srem is funky...
-        cmdVals["servName"],cmdVals["conName"]);
-        writefln("setDelQuery %s\n",setDelQuery);
-        db.send(setDelQuery);
-
-        //free up container ports
-        string freeConPortQuery = format("HMGET %s conPort",
-        cmdVals["conName"]);
-        Response conPorts = db.send(freeConPortQuery);
-        foreach(k1,v1; conPorts.values)
-        {
-            string freePortQuery1 = format("SADD free_Ports %s",
-            v1.value);
-            db.send(freePortQuery1);
-        }
-
-
-        //adds freed resources back to server
-        int availableCPU = 0;
-        string servCPUQuery = format("HMGET %s availableCPU",
-        cmdVals["servName"]);
-        Response cpuRes = db.send(servCPUQuery);
-        foreach(cpuK,cpuV; cpuRes.values)
-        {
-            availableCPU = to!int(cpuV) + to!int(cmdVals["conCPU"]);
-        }
-
-        float availableMEM = 0;
-        string servMEMQuery = format("HMGET %s availableMEM",
-        cmdVals["servName"]);
-        Response memRes = db.send(servMEMQuery);
-        foreach(memK,memV; memRes.values)
-        {
-            availableMEM  = to!float(to!string(memV)) + to!float(cmdVals["conMEM"]);
-        }
-
-        string serverEditQuery = format("HMSET %s availableCPU %s availableMEM %s",
-            cmdVals["servName"],availableCPU,availableMEM);
-        db.send(serverEditQuery);
-
-
-        string query = format("Del %s",
-        cmdVals["conName"]);   
-        db.send(query);
-
-        string freeConQuery = format("SADD free_containers %s",
-        cmdVals["conName"][1..$]);
-        writefln("freeconquery (add): %s\n",freeConQuery);
-        db.send(freeConQuery);
-
-        writefln("scontainer %s deleted!\n",cmdVals["conName"]);
-
         synchronized 
         {
+            string setDelQuery = format("SREM %s_containers %s", //todo maybe this srem is funky...
+            cmdVals["servName"],cmdVals["conName"]);
+            writefln("setDelQuery %s\n",setDelQuery);
+            execRedis(db,setDelQuery);
+
+            //free up container ports
+            string freeConPortQuery = format("HMGET %s conPort",
+            cmdVals["conName"]);
+            Response conPorts = execRedis(db,freeConPortQuery);
+            foreach(k1,v1; conPorts.values)
+            {
+                string freePortQuery1 = format("SADD free_Ports %s",
+                v1.value);
+                execRedis(db,freePortQuery1);
+            }
+
+
+            //adds freed resources back to server
+            int availableCPU = 0;
+            string servCPUQuery = format("HMGET %s availableCPU",
+            cmdVals["servName"]);
+            Response cpuRes = execRedis(db,servCPUQuery);
+            foreach(cpuK,cpuV; cpuRes.values)
+            {
+                availableCPU = to!int(cpuV) + to!int(cmdVals["conCPU"]);
+            }
+
+            float availableMEM = 0;
+            string servMEMQuery = format("HMGET %s availableMEM",
+            cmdVals["servName"]);
+            Response memRes = execRedis(db,servMEMQuery);
+            foreach(memK,memV; memRes.values)
+            {
+                availableMEM  = to!float(to!string(memV)) + to!float(cmdVals["conMEM"]);
+            }
+
+            string serverEditQuery = format("HMSET %s availableCPU %s availableMEM %s",
+                cmdVals["servName"],availableCPU,availableMEM);
+            execRedis(db,serverEditQuery);
+
+
+            string query = format("Del %s",
+            cmdVals["conName"]);   
+            execRedis(db,query);
+
+            string freeConQuery = format("SADD free_containers %s",
+            cmdVals["conName"][1..$]);
+            writefln("freeconquery (add): %s\n",freeConQuery);
+            execRedis(db,freeConQuery);
+
+            writefln("scontainer %s deleted!\n",cmdVals["conName"]);
+
+
             socks["agent1"].send("cmd:cDelConfirmed,buff:buff");
             socks["exec"].send("cmd:cDelConfirmed,buff:buff");
             writefln("sent to agent1!!!!!\n");
@@ -251,12 +261,12 @@ void handleInput(string[string] cmdVals,Redis db,Socket[string] socks)
         //todo log
             writefln("saving request data!!!\n");
             string setQuery = format("SADD currentRequests %s",cmdVals["tid"]);
-            db.send(setQuery);
+            execRedis(db,setQuery);
 
             string reqQuery = format("HMSET %s type %s region %s completed %s elapsed %s timeout %s rejected %s server %s con %s tCPU %s tMEM %s",
             cmdVals["tid"],cmdVals["tType"],cmdVals["region"],cmdVals["completed"],cmdVals["elapsed"],cmdVals["timeout"],cmdVals["rejected"],cmdVals["server"],cmdVals["con"],cmdVals["tCPU"],cmdVals["tMEM"]);
             writefln("hmset query %s\n",reqQuery);
-            db.send(reqQuery);
+            execRedis(db,reqQuery);
 
             synchronized
             {

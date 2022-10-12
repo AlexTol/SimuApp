@@ -66,6 +66,16 @@ void waitSignal(shared ref bool sig)
     }
 }
 
+int assignAndIncrementPortNum()
+{
+    synchronized
+    {
+        int retPort = portNum;
+        atomicOp!"+="(portNum, 1);    
+        return retPort;
+    }
+}
+
 Response execRedis(Redis db,string query)
 {
     synchronized
@@ -73,6 +83,8 @@ Response execRedis(Redis db,string query)
         return db.send(query);
     }
 }
+
+
 
 void refreshFreedEntities(Redis db)
 {
@@ -465,8 +477,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
             }
             else 
             {
-                sPort = portNum;
-                atomicOp!"+="(portNum, 1);    
+                sPort = assignAndIncrementPortNum();
             }
         }
         //writefln("here!!!1!\n");
@@ -533,6 +544,7 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
                 string freeConQuery2 = format("SREM free_containers %s",cName[1..$]);
                 writefln("Exec freeconquery : %s\n",freeConQuery2);
                 execRedis(db,freeConQuery2);
+                refreshFreedEntities(db);
             }
             else 
             {
@@ -549,14 +561,14 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
                 writefln("freedPorts after %s \n",freedPorts);
 
                 string freePortQuery2 = format("SREM free_Ports %s",
-                cmdVals["servPort"]);
+                cPort);
                 writefln("Exec freePortQuery : %s\n",freePortQuery2);
                 execRedis(db,freePortQuery2);
+                refreshFreedEntities(db);
             }
             else 
             {
-                cPort = portNum;
-                atomicOp!"+="(portNum, 1);    
+                cPort = assignAndIncrementPortNum();
             }
             writefln("Checkpoint 3 \n");
 
@@ -726,25 +738,25 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
     {
         writefln("cAddGet set to true\n");
         cAddGet = true;
-        refreshFreedEntities(db);
+        //refreshFreedEntities(db);
     }
     else if(cmdVals["cmd"] == "cDelConfirmed")
     {
         writefln("cDelGet set to true\n");
         cDelGet = true;
-        refreshFreedEntities(db);
+        //refreshFreedEntities(db);
     }
     else if(cmdVals["cmd"] == "sAddConfirmed")
     {
         writefln("sAddGet set to true\n");
         sAddGet = true;
-        refreshFreedEntities(db);
+        //refreshFreedEntities(db);
     }
     else if(cmdVals["cmd"] == "sDelConfirmed")
     {
         writefln("sDelGet set to true\n");
         sDelGet = true;
-        refreshFreedEntities(db);
+        //refreshFreedEntities(db);
     }
     else if(cmdVals["cmd"] == "reqConfirmed")
     {

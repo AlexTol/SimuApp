@@ -518,6 +518,8 @@ def scheduleLayer3Info(state,chosenCon,chosenConObj,sCons):
 
     typeUtilCPU = []
     for cName,cObj in sCons.items():
+        if(len(cObj) == 0):
+            continue
         if(cObj["conType"] == chosenConObj["conType"]):
             typeUtilCPU.append(getConUtil2(cName.split("c")[1],"CPU"))
     typeUtilCPUDiff = averageDif(typeUtilCPU)
@@ -529,6 +531,8 @@ def scheduleLayer3Info(state,chosenCon,chosenConObj,sCons):
 
     typeUtilMEM = []
     for cName,cObj in sCons.items():
+        if(len(cObj) == 0):
+            continue
         if(cObj["conType"] == chosenConObj["conType"]):
             typeUtilMEM.append(getConUtil2(cName.split("c")[1],"MEM"))
     typeUtilMEMDiff = averageDif(typeUtilMEM)
@@ -560,6 +564,9 @@ def getContainerProvisionerInfo(state,serv,sObj):
 
         for serv,conTup in servcons.items():
             for con,cObj in conTup.items():
+                if(len(cObj) == 0):
+                    continue
+
                 if(cObj["conType"] == "A"):
                     state[8] += 1
                 elif(cObj["conType"] == "B"):
@@ -666,8 +673,7 @@ def getConUtil(port,rtype):
 
 def getConUtil2(conNum,rType):
     currReqs = r.smembers("currentRequests")
-    cpuUtilNum = 0
-    memUtilNum = 0
+    utilNum = 0
     for req in currReqs:
         mReq = r.hgetall(req.decode("utf-8"))
         reqObj = decodeObj(mReq)
@@ -675,20 +681,24 @@ def getConUtil2(conNum,rType):
         #print("conNum: " + str(conNum))
         if(len(reqObj) != 0):
             if(reqObj["con"] == conNum):
-                cpuUtilNum += float(reqObj["tCPU"])
-                memUtilNum += float(reqObj["tMEM"])
+                if(rType == "CPU"):
+                    utilNum += float(reqObj["tCPU"])
+                else:
+                    utilNum += float(reqObj["tMEM"])
+
 
     con = r.hgetall("c" + str(conNum))
     mCon = decodeObj(con)
 
     if(len(mCon) != 0):
-        cpuUtil = cpuUtilNum/(float(mCon["conCPU"]))
-        memUtil = memUtilNum/(float(mCon["conMEM"]))
+        if(rType == "CPU"):
+            util = utilNum/(float(mCon["conCPU"]))
+        else:
+            util = utilNum/(float(mCon["conMEM"]))
     else: #if con no longer exists then util is zero
-        cpuUtil = 0
-        memUtil = 0
+        util = 0
 
-    return (cpuUtil + memUtil)/2
+    return util
 
 def displayEnvState():
     taskData = getTaskData()
@@ -763,6 +773,9 @@ def agentTime():
         clearFinishedQueries()
 
 def averageDif(mlist): #credit for simpler way https://stackoverflow.com/questions/47040728/get-average-difference-between-all-numbers-in-a-list-python
+    if(len(mlist) == 0):
+        return 0
+    
     diffs = []
     for i, e in enumerate(mlist):
         for j, f in enumerate(mlist):
@@ -900,20 +913,20 @@ def calcUtilPenalty(util,count):
 
 def utilScore(util,count):
     if(util <= .15):
-        if(count > 4):
-            return [0,0,5]
+        if(count > 8):
+            return [1,0,15]
         else:
-            return [1.2,0,0]
+            return [8,0,0]
     elif(util <= .3):
-        return [1.5,.5,3.5]
+        return [3,1,10]
     elif(util <= .5):
-        return [2,1.5,2]
+        return [9,6,8]
     elif(util <= .75):
-        return [4,3.8,1.5]
+        return [15,8,6]
     elif(util <= .9):
-        return [1.8,4,1]
+        return [4,12,1]
     else:
-        return [0,5,0]
+        return [0,15,0]
 
 
 def conProvisionerReward(serv,sObj,poorDeprovision,poorProvision,timeouts,prevAction):
@@ -1001,6 +1014,8 @@ def getConOfLowestUtilType(serv,mtype):
     for con,cObj in cons.items():
         print("con: " + str(con))
         print("cObj: " + str(cObj))
+        if(len(cObj) == 0):
+            continue
         if(cObj["conType"] != mtype):
             continue
 
@@ -1110,10 +1125,10 @@ def execConProvChoice(choice,state,serv,sObj):
             #    pass
             #execGet2 = False
 
-            if(waitadd):
-                waitAdd()
-            elif(waitdel):
-                waitDel()
+            #if(waitadd):
+            #    waitAdd()
+            #elif(waitdel):
+            #    waitDel()
 
     print("EXECCONPROVECHOICE HERE2, choice " + str(choice))
     return poorDeprovision,poorProvision
@@ -1407,7 +1422,10 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
     #j = 0
     for con,conObj in cons.items():
         state2 = np.zeros(l2_size)
-        scheduleLayer2Info(state2,cmdVals,con,conObj)
+        
+        if(len(conObj) != 0):
+            scheduleLayer2Info(state2,cmdVals,con,conObj)
+        
         conObjs.append(conObj)
         conNames.append(con)
         #print("ConObj: " + str(conObj) + " ,state2: " + str(state2) + " ,index: " + str(j))
@@ -1431,8 +1449,12 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
     #print(chosenConStr)
     conInfo = decodeObj(r.hgetall(f"{chosenCon}"))
     #print(conInfo)
-    conPort = conInfo['conPort']
-    conType = conInfo['conType']
+    if(len(conInfo) != 0):
+        conPort = conInfo['conPort']
+        conType = conInfo['conType']
+    else:
+        conPort = 100000
+        conType = 100000
 
     #todo change the next states so that the provisioned correctly dim is set to 1
     taskString = dictToTcpString(cmdVals)
@@ -1479,7 +1501,9 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
         #chosenConNames = []
         for con,conObj in cons2.items():
             state2 = np.zeros(l2_size)
-            scheduleLayer2Info(state2,cmdVals,con,conObj)
+
+            if(len(conObj) != 0):
+                scheduleLayer2Info(state2,cmdVals,con,conObj)
             #state2[0] = properlyProvisioned[con]
 
             if(con == chosenCon):
