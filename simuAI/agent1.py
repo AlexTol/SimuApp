@@ -795,7 +795,7 @@ def averageDif(mlist): #credit for simpler way https://stackoverflow.com/questio
     return sum(diffs)/len(diffs)
 
 
-def containerTaskAgentReward(conExists,conTypeCorrect,conType,serverChoice,conChoice,servExists):
+def containerTaskAgentReward(conExists,conTypeCorrect,conType,serverChoice,conChoice,servExists,zeroEpisodesAbsolute2):
     reward = 0
     mFile = os.path.join(path_to_script, "AILOGS/containerTaskAgentReward.txt")
     f = open(mFile,"a")
@@ -838,17 +838,17 @@ def containerTaskAgentReward(conExists,conTypeCorrect,conType,serverChoice,conCh
         utilAverageMultiplier = 1.5
 
     if(reward < 0):
-        f.write(f"conExists: {conExists},conTypeCorrect: {conTypeCorrect},conChoice :{conChoice},utilAverage: {utilAverage},reward: {reward}\n")
+        f.write(f"episode:{zeroEpisodesAbsolute2},conExists: {conExists},conTypeCorrect: {conTypeCorrect},conChoice :{conChoice},utilAverage: {utilAverage},reward: {reward}\n")
         f.close()
         return reward
 
-    f.write(f"conExists: {conExists},conTypeCorrect: {conTypeCorrect},conChoice :{conChoice},utilAverage: {utilAverage},reward: {utilAverageMultiplier * reward}\n")
+    f.write(f"episode:{zeroEpisodesAbsolute2},conExists: {conExists},conTypeCorrect: {conTypeCorrect},conChoice :{conChoice},utilAverage: {utilAverage},reward: {utilAverageMultiplier * reward}\n")
     f.close()
     return utilAverageMultiplier * reward
 
     
 
-def serverTaskAgentReward(serverExists,correctRegion):
+def serverTaskAgentReward(serverExists,correctRegion,zeroEpisodesAbsolute):
     reward = 0
     mFile = os.path.join(path_to_script, "AILOGS/serverTaskAgentReward.txt")
     f = open(mFile,"a")
@@ -889,7 +889,7 @@ def serverTaskAgentReward(serverExists,correctRegion):
 
     utilAverageDiff = averageDif(utilAverages)
 
-    f.write(f"serverExists: {serverExists}, correctRegion: {correctRegion}, utilAverage: {utilAverage}, utilAverageDiff: {utilAverageDiff},")
+    f.write(f"serverExists: {serverExists}, correctRegion: {correctRegion}, utilAverage: {utilAverage}, utilAverageDiff: {utilAverageDiff},episode: {zeroEpisodesAbsolute},")
 
     if reward < 0:
         f.write(f"reward: {reward}\n")
@@ -923,22 +923,22 @@ def calcUtilPenalty(util,count):
 def utilScore(util,count):
     if(util <= .15):
         if(count > 8):
-            return [1,0,15]
+            return [1,0,18]
         else:
-            return [8,0,0]
+            return [8,0,3]
     elif(util <= .3):
-        return [3,1,10]
+        return [3,1,13]
     elif(util <= .5):
-        return [9,6,8]
+        return [9,6,11]
     elif(util <= .75):
-        return [15,8,6]
+        return [15,8,9]
     elif(util <= .9):
-        return [4,12,1]
+        return [4,12,4]
     else:
-        return [0,15,0]
+        return [0,15,3]
 
 
-def conProvisionerReward(serv,sObj,poorDeprovision,poorProvision,timeouts,prevAction):
+def conProvisionerReward(serv,sObj,poorDeprovision,poorProvision,timeouts,prevAction,episodes4Absolute):
     mFile = os.path.join(path_to_script, "AILOGS/provisionreward1.txt")
     f = open(mFile,"a")
     conCount = len(getContainers({serv:0})[serv])
@@ -947,7 +947,7 @@ def conProvisionerReward(serv,sObj,poorDeprovision,poorProvision,timeouts,prevAc
 
     if(poorDeprovision or poorProvision):
         return 0
-        f.write("server: " + str(serv) + " ,choice: " + str(prevAction) + " ,totalMEMUTILA: " + str(info['totalMEMUtilA']) + " ,totalMEMUTILB: " + str(info['totalMEMUtilB'])
+        f.write("Episode" + str(episodes4Absolute) + " ,server: " + str(serv) + " ,choice: " + str(prevAction) + " ,totalMEMUTILA: " + str(info['totalMEMUtilA']) + " ,totalMEMUTILB: " + str(info['totalMEMUtilB'])
         + " ,totalMEMUTILCs: " + str(info['totalMEMUtilC']) + " ,totalMEMUTILD: " + str(info['totalMEMUtilD']) + " ,totalCPUUTILA: " + str(info['totalCPUUtilA']) + " ,totalCPUUTILB: " + str(info['totalCPUUtilB'])
         + " ,totalCPUUTILC: " + str(info['totalCPUUtilC']) + " ,totalCPUUTILD: " + str(info['totalCPUUtilD']) + " ,conCount: " + str(conCount) + " ,reward: " + str(0) + "\n")
 
@@ -1008,7 +1008,7 @@ def conProvisionerReward(serv,sObj,poorDeprovision,poorProvision,timeouts,prevAc
     else:
         timeoutPenalty = .5
 
-    f.write("server: " + str(serv) + " ,choice: " + str(prevAction) + " ,totalMEMUTILA: " + str(info['totalMEMUtilA']) + " ,totalMEMUTILB: " + str(info['totalMEMUtilB'])
+    f.write("Episode" + str(episodes4Absolute) + " ,server: " + str(serv) + " ,choice: " + str(prevAction) + " ,totalMEMUTILA: " + str(info['totalMEMUtilA']) + " ,totalMEMUTILB: " + str(info['totalMEMUtilB'])
     + " ,totalMEMUTILCs: " + str(info['totalMEMUtilC']) + " ,totalMEMUTILD: " + str(info['totalMEMUtilD']) + " ,totalCPUUTILA: " + str(info['totalCPUUtilA']) + " ,totalCPUUTILB: " + str(info['totalCPUUtilB'])
     + " ,totalCPUUTILC: " + str(info['totalCPUUtilC']) + " ,totalCPUUTILD: " + str(info['totalCPUUtilD']) + " ,conCount: " + str(conCount) + " ,reward: " + str(reward * timeoutPenalty) + "\n")
     
@@ -1143,7 +1143,7 @@ def execConProvChoice(choice,state,serv,sObj):
     return poorDeprovision,poorProvision
 
 
-def scheduleReward1(choices,servNames,servObjs,region):
+def scheduleReward1(choices,servNames,servObjs,region,episodes3Absolute):
     rewards = []
     properlyProvisioned = {}
     mFile = os.path.join(path_to_script, "AILOGS/schedreward1.txt")
@@ -1158,13 +1158,13 @@ def scheduleReward1(choices,servNames,servObjs,region):
         elif(choices[i] == 0 and region != servObjs[i]["region"]):
             rewards[i] = 1
 
-        f.write("choice: " + str(choices[i]) + " ,server: " + str(servNames[i])+ ",serverRegion: " + str(servObjs[i]["region"]) + ",Region: " + str(region) + ",Reward: " + 
+        f.write("Episode:" + str(episodes3Absolute) + " ,Choice: " + str(choices[i]) + " ,server: " + str(servNames[i])+ ",serverRegion: " + str(servObjs[i]["region"]) + ",Region: " + str(region) + ",Reward: " + 
         str(rewards[i])  + "\n")
 
     f.close()
     return rewards,properlyProvisioned
 
-def scheduleReward2(choices,cons,mtype,correctlyChosen):
+def scheduleReward2(choices,cons,mtype,correctlyChosen,episodes3Absolute):
     rewards = {}
     properlyProvisioned = {}
     mFile = os.path.join(path_to_script, "AILOGS/schedreward2.txt")
@@ -1186,13 +1186,13 @@ def scheduleReward2(choices,cons,mtype,correctlyChosen):
             rewards[con] = minReward
          #   properlyProvisioned[conNames[i]] = 1
 
-        f.write("con: " + str(con) + " ,choice: " + str(choices[con]) + " ,conType: " + str(cons[con]["conType"]) 
+        f.write("Episode: " + str(episodes3Absolute) + " ,Con: " + str(con) + " ,choice: " + str(choices[con]) + " ,conType: " + str(cons[con]["conType"]) 
         + " ,taskType: " + str(mtype) + " ,reward: " + str(rewards[con]) + " ,correctlyChosen: " + str(correctlyChosen) + "\n")
 
     f.close()
     return rewards,properlyProvisioned
 
-def scheduleReward3(chosenConState,chosenConName):
+def scheduleReward3(chosenConState,chosenConName,episodes3Absolute):
     reward = 0
     mFile = os.path.join(path_to_script, "AILOGS/schedreward3.txt")
     f = open(mFile,"a")
@@ -1223,7 +1223,7 @@ def scheduleReward3(chosenConState,chosenConName):
     else:
         reward += 0
 
-    f.write("ChosenCon: " + chosenConName + " ,memDiff: " + str(memUtilDiff) + " ,cpuDiff: " + str(cpuUtilDiff) + " ,reward: " + str(reward) + "\n" ) #finish this log also remember to figure out the state[0] = 1 where we only want to do that if a good result was had
+    f.write("Episode:" + str(episodes3Absolute) + " ,ChosenCon: " + chosenConName + " ,memDiff: " + str(memUtilDiff) + " ,cpuDiff: " + str(cpuUtilDiff) + " ,reward: " + str(reward) + "\n" ) #finish this log also remember to figure out the state[0] = 1 where we only want to do that if a good result was had
     f.close()
 
     return reward
@@ -1336,6 +1336,8 @@ def zeroEncodeAgentTime(cmdVals):
     global episodes
     global episodes2
     global curTime
+    global zeroEpisodesAbsolute
+    global zeroEpisodesAbsolute2
 
     with orchlock:
         print("orchsock send!\n")
@@ -1391,13 +1393,15 @@ def zeroEncodeAgentTime(cmdVals):
         getServerSenderInfo(taskAgentState,cmdVals) # sets taskAgentState by reference
         getContainerSenderInfo(taskAgentState2,cmdVals,schoice)
 
-        reward = serverTaskAgentReward(serverExists,correctRegion)
-        reward2 = containerTaskAgentReward(conExists,conTypeCorrect,conType,schoice,cchoice,serverExists)
+        reward = serverTaskAgentReward(serverExists,correctRegion,zeroEpisodesAbsolute)
+        reward2 = containerTaskAgentReward(conExists,conTypeCorrect,conType,schoice,cchoice,serverExists,zeroEpisodesAbsolute2)
 
         taskAgent.remember(prevState,s,reward,taskAgentState,False)
         episodes += 1
+        zeroEpisodesAbsolute += 1
         if(serverExists):
             taskAgent2.remember(prevState2,c,reward2,taskAgentState2,False)
+            zeroEpisodesAbsolute2 += 1
             episodes2 += 1
 
         if episodes == 32:
@@ -1421,6 +1425,7 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
     global curTime
     global scheduleAgent 
     global episodes3
+    global episodes3Absolute
 
     with orchlock:
         print("orchsock send!\n")
@@ -1500,7 +1505,7 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
             pass
         execGet = False
 
-        rewards1,properlyProvisioned = scheduleReward1(choices1,servNames,servObjs,cmdVals['region'])
+        rewards1,properlyProvisioned = scheduleReward1(choices1,servNames,servObjs,cmdVals['region'],episodes3Absolute)
         servs2 = getServers()
         servsNextState = []
         for serv,servObj in servs2.items():
@@ -1521,7 +1526,7 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
                 correctlyChosen = False
                 break
 
-        rewards2,properlyProvisioned = scheduleReward2(choices2,cons,cmdVals['type'],correctlyChosen)
+        rewards2,properlyProvisioned = scheduleReward2(choices2,cons,cmdVals['type'],correctlyChosen,episodes3Absolute)
 
         for con,reward in rewards2.items():
             rewardVector.append(reward)
@@ -1560,7 +1565,7 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
         #rewards2 = scheduleReward2(choices2,conNames,conObjs,cmdVals['type'])
         scheduleAgent.remember(2,layer2List,choices2,rewards2,consNextState)
 
-        reward3 = scheduleReward3(chosenConNextState,chosenCon)
+        reward3 = scheduleReward3(chosenConNextState,chosenCon,episodes3Absolute)
         rewards3 = {}
         for con,cObj in chosenCons.items():
             rewards3[con] = reward3
@@ -1568,6 +1573,7 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
         scheduleAgent.remember(3,layer3List,choices3,rewards3,chosenConsNextState) #todo look into reforming this
 
         episodes3 += 1
+        episodes3Absolute += 1
         if(episodes3 == 10):
             switchProvisioner(rewardVector)
             rewardVector = []
@@ -1576,6 +1582,7 @@ def scheduleNetTime(cmdVals,l1_size,l2_size,l3_size):
 
 def conProvisioningTime(size): #todo complete, double check the parallelism on this too....
     global episodes4
+    global episodes4Absolute
     global conProvisioningAgent
     global prevServStates 
     global prevServActs
@@ -1623,7 +1630,7 @@ def conProvisioningTime(size): #todo complete, double check the parallelism on t
         else:
             poorProv = prevServPProvs[serv]
 
-        reward = conProvisionerReward(serv,sObj,poorDeprov,poorProv,state[12],prevAction)
+        reward = conProvisionerReward(serv,sObj,poorDeprov,poorProv,state[12],prevAction,episodes4Absolute)
         servRewards[serv] = reward
         if(serv in prevServStates.keys() and (prevServActs != "none" and len(prevServActs) > 0)):
             conProvisioningAgent.remember(prevServStates[serv],prevServActs[serv],prevServRewards[serv],state,False)
@@ -1791,6 +1798,8 @@ taskAgentStateSize2 =  12 + (8 * 50) #conname,A?,B?,C?,D? UTIL MEM, UTIL CPU, ex
 taskAgentActionSize2 = 50
 taskAgentState2 = np.zeros(taskAgentStateSize2)
 
+zeroEpisodesAbsolute = 0
+zeroEpisodesAbsolute2 = 0
 episodes = 0
 episodes2 = 0
 path_to_script = os.path.dirname(os.path.abspath(__file__))
@@ -1802,6 +1811,7 @@ taskAgent = DQNAgent(taskAgentStateSize,taskAgentActionSize,mFile,saveTaskAgent,
 taskAgent2 = DQNAgent(taskAgentStateSize2,taskAgentActionSize2,mFile2,saveTaskAgent,loadTaskAgent,bin2)
 
 episodes3 = 0
+episodes3Absolute = 0
 mFile3 = os.path.join(path_to_script, "AILOGS/sched1_loss.txt")
 bin3 = os.path.join(path_to_script, "sched1")
 mFile4 = os.path.join(path_to_script, "AILOGS/sched2_loss.txt")
@@ -1812,6 +1822,7 @@ scheduleAgent = ScheduleNet(12,8,4,mFile3,mFile4,mFile5,saveTaskAgent,loadTaskAg
 
 
 episodes4 = 0
+episodes4Absolute = 0
 mFile6 = os.path.join(path_to_script, "AILOGS/conProv_loss.txt")
 bin6 = os.path.join(path_to_script, "prov")
 conProvisioningAgent = DQNAgent(15,9,mFile6,saveProvAgent,loadProvAgent,bin6)  #A/B/C/D CPU/MEM util (x8),A/B/C/D con count (x4), timed out tasks(x1),Available CPU,Available Mem
