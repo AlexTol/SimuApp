@@ -9,7 +9,7 @@ import os
 
 #define agent Credit for basic format to LiveLessons : https://www.youtube.com/watch?v=OYhFoMySoVs&t=3170s
 class DQNAgent(nn.Module):
-    def __init__(self,state_size,action_size,logFile=False):
+    def __init__(self,state_size,action_size,logFile=False,saveAgent,loadAgent,agentName="none"):
         super(DQNAgent, self).__init__()
         self.state_size = state_size
         self.action_size = action_size
@@ -32,11 +32,18 @@ class DQNAgent(nn.Module):
         self.layer3.weight.data.fill_(0)
 
         self.logfile = logFile
+        self.save = saveAgent
+        self.load = loadAgent
+
+        self.binName = agentName
 
         self.optimizer = optim.Adam(self.parameters(), lr=self.learning_rate)
         self.loss = nn.MSELoss()
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
         self.to(self.device)
+
+        if(self.load == "1"):
+            self.load_state_dict(T.load(agentName))
 
     #important! It takes state at current time, action at current time, reward as current time,next_state, done lets us know if episode has ended
     def remember(self,state,action,reward,next_state,done):
@@ -62,7 +69,7 @@ class DQNAgent(nn.Module):
         if np.random.rand() <= self.epsilon:  #the bigger epsilon is, the more likely exploration is
             return random.randrange(self.action_size)
         act_values = self.forward(state)
-        return np.argmax(act_values.detach().numpy())
+        return np.argmax(act_values.detach().numpy()) #formerly return np.argmax(act_values.detach().numpy()[0])
 
     def replay(self,batch_size,log=False):
         #self.optimizer.zero_grad() you had this for the winning run
@@ -98,5 +105,8 @@ class DQNAgent(nn.Module):
         f2.close()
         if self.epsilon > self.epsilon_min:
             self.epsilon = self.epsilon * self.epsilon_decay
+
+        if(self.save):
+            T.save(self.state_dict(), self.binName)
 
 

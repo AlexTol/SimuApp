@@ -91,13 +91,15 @@ void waitSignal(shared ref bool sig)
     }
 }
 
-void initEnvironment(Redis db)
+void initEnvironment(Redis db,string[string] cmdVals)
 {
     string basePath = "/home/dev/Projects/thesis/SimuApp/simuSys";
     string aiPath = "/home/dev/Projects/thesis/SimuApp/simuAI";
     string cmd1 = format("%s/executor",basePath);
     string cmd2 = format("%s/observer",basePath);
-    string agent1Path = format("%s/agent1.py",aiPath);
+    //zeroEON:0,schedON:1,saveTaskAgent:1,loadTaskAgent:0,ProvOn:1,saveProvAgent:1,loadProvAgent:0,buff:buff
+    string agent1Path = format("%s/agent1.py %s %s %s %s %s %s %s",aiPath,cmdVals["zeroEon"],cmdVals["schedON"],
+    cmdVals["saveTaskAgent"],cmdVals["loadTaskAgent"],cmdVals["ProvOn"],cmdVals["saveProvAgent"],cmdVals["loadProvAgent"]);
 
     spawnProcess(cmd1);
     spawnProcess(cmd2);
@@ -305,7 +307,7 @@ void handleInput(string[string] cmdVals,Redis db)
 {
     if(cmdVals["cmd"] == "initEnv")
     {
-        initEnvironment(db);
+        initEnvironment(db,cmdVals);
     }
     else if(cmdVals["cmd"] == "shutDownEnv")
     {

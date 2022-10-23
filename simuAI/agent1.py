@@ -86,16 +86,23 @@ def switchProvisioner(rewards):
     else:
         inARow = 0
 
-def correctConSelect(chosenServ,state):
+def correctservSelect(cmdVals):
+    regions = cmdVals['region']
+    servs = getServers()
+    elligibleServs = []
+    
+    for serv,sObj in servs.items():
+        if(sObj["region"] == regions):
+            elligibleServs.append(serv)
+
+    return random.choice(elligibleServs).split("s")[1]
+
+    
+
+def correctConSelect(chosenServ,cmdVals):
     #get the server
     #choose a con with the correct type, type can be extrapolated from state
-    rType = "D"
-    if(state[0] == 1):
-        rType = "A"
-    elif(state[1] == 1):
-        rType = "B"
-    elif(state[2] == 1):
-        rType = "C"
+    rType = cmdVals['type']
 
     choices = []
 
@@ -749,6 +756,7 @@ def provisionerTime():
     global provisioningInAction
     global provisioningTriggered
     global schedulerWorking
+    global provOn
 
     count = 0
     firstTimeDelay = 10
@@ -759,7 +767,8 @@ def provisionerTime():
         if(provisioningTriggered): #cheesy way of running this every 30 secs
             provisioningInAction = True
             if(schedulerWorking):
-                conProvisioningTime(15)
+                if(provOn == "1"):
+                    conProvisioningTime(15)
             count = 0
             #irstTimeDelay = 0
             provisioningTriggered = False
@@ -1294,6 +1303,29 @@ def dictToTcpString(cmdVals):
 
     return f"id:{mid},type:{mtype},timetocomplete:{ttc},region:{region},deps:{deps}"
 
+def perfectTaskScheduling(cmdVals):
+    global execlock 
+
+    s = correctservSelect(cmdVals)
+    c = correctConSelect(s,cmdVals)
+
+    conInfo = decodeObj(r.hgetall(f"{c}"))
+    conPort = 0
+    conType = "NA"
+    if(conInfo):
+        conPort = conInfo['conPort']
+        conType = conInfo['conType']
+        conExists,conTypeCorrect = checkConChoice(str(c),s,cmdVals['type'])
+        
+    cVector = c.split("c")[1]
+
+    taskString = dictToTcpString(cmdVals)
+    with execlock:
+        print(f"AGENT 1: cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{s},con:{cVector},buff:buff")
+        execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{s},con:{cVector},buff:buff".encode()) 
+
+
+
 def zeroEncodeAgentTime(cmdVals):
     global execlock #how to access global var
     global orchlock
@@ -1621,6 +1653,8 @@ def handleInput(dat):
     global curTime
     global provisioningInAction
     global provisioningTriggered
+    global zeroEOn
+    global schedOn
 
     cmdVals = processInput(dat)
     if len(cmdVals) == 0:
@@ -1628,8 +1662,12 @@ def handleInput(dat):
     elif  cmdVals['cmd'] == "stask":
         while provisioningInAction:
             pass
-        #zeroEncodeAgentTime(cmdVals)
-        scheduleNetTime(cmdVals,12,8,4)
+        if(zeroEOn == "1"):
+            zeroEncodeAgentTime(cmdVals)
+        elif(schedOn == "1"):
+            scheduleNetTime(cmdVals,12,8,4)
+        else:
+            perfectTaskScheduling(cmdVals)
     elif  cmdVals['cmd'] == "connect":
         with orchlock:
             orchSock.sendall(b'cmd:agent1FullyConnected,buff:buff\r\n')
@@ -1718,6 +1756,14 @@ def runServer():
 #todo idea: make agent time happen everytime 
 #HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
 #PORT = 7003  # Port to listen on (non-privileged ports are > 1023)
+#agent QOL params
+zeroEOn = sys.argv[1]
+schedOn = sys.argv[2]
+saveTaskAgent = sys.argv[3]
+loadTaskAgent = sys.argv[4]
+provOn = sys.argv[5]
+saveProvAgent = sys.argv[6]
+loadProvAgent = sys.argv[7]
 
 print("agent1 to orch!\n")
 orchSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1749,20 +1795,26 @@ episodes = 0
 episodes2 = 0
 path_to_script = os.path.dirname(os.path.abspath(__file__))
 mFile = os.path.join(path_to_script, "AILOGS/t1_loss.txt")
+bin1 = os.path.join(path_to_script, "t1")
 mFile2 = os.path.join(path_to_script, "AILOGS/t2_loss.txt")
-taskAgent = DQNAgent(taskAgentStateSize,taskAgentActionSize,mFile)
-taskAgent2 = DQNAgent(taskAgentStateSize2,taskAgentActionSize2,mFile2)
+bin2 = os.path.join(path_to_script, "t2")
+taskAgent = DQNAgent(taskAgentStateSize,taskAgentActionSize,mFile,saveTaskAgent,loadTaskAgent,bin1)
+taskAgent2 = DQNAgent(taskAgentStateSize2,taskAgentActionSize2,mFile2,saveTaskAgent,loadTaskAgent,bin2)
 
 episodes3 = 0
 mFile3 = os.path.join(path_to_script, "AILOGS/sched1_loss.txt")
+bin3 = os.path.join(path_to_script, "sched1")
 mFile4 = os.path.join(path_to_script, "AILOGS/sched2_loss.txt")
+bin4 = os.path.join(path_to_script, "sched2")
 mFile5 = os.path.join(path_to_script, "AILOGS/sched3_loss.txt")
-scheduleAgent = ScheduleNet(12,8,4,mFile3,mFile4,mFile5) #the dims for servs and cons are -1 since we no longer need exists
+bin5 = os.path.join(path_to_script, "sched3")
+scheduleAgent = ScheduleNet(12,8,4,mFile3,mFile4,mFile5,saveTaskAgent,loadTaskAgent,bin3,bin4,bin5) #the dims for servs and cons are -1 since we no longer need exists
 
 
 episodes4 = 0
 mFile6 = os.path.join(path_to_script, "AILOGS/conProv_loss.txt")
-conProvisioningAgent = DQNAgent(15,9,mFile6)  #A/B/C/D CPU/MEM util (x8),A/B/C/D con count (x4), timed out tasks(x1),Available CPU,Available Mem
+bin6 = os.path.join(path_to_script, "prov")
+conProvisioningAgent = DQNAgent(15,9,mFile6,saveProvAgent,loadProvAgent,bin6)  #A/B/C/D CPU/MEM util (x8),A/B/C/D con count (x4), timed out tasks(x1),Available CPU,Available Mem
 prevServStates = {}
 servs = getServers()
 for serv,sObj in servs.items():
