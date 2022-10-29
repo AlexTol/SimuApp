@@ -9,7 +9,7 @@ import os
 
 #define agent Credit for basic format to LiveLessons : https://www.youtube.com/watch?v=OYhFoMySoVs&t=3170s
 class DQNAgent(nn.Module):
-    def __init__(self,state_size,action_size,logFile=False,saveAgent,loadAgent,agentName="none"):
+    def __init__(self,state_size,action_size,logFile=False,saveAgent="0",loadAgent="0",agentName="none"):
         super(DQNAgent, self).__init__()
         self.state_size = state_size
         self.action_size = action_size
@@ -106,6 +106,9 @@ class DQNAgent(nn.Module):
         if self.epsilon > self.epsilon_min:
             self.epsilon = self.epsilon * self.epsilon_decay
 
+        print("save state : " + str(self.save))
+        print("state dict : " + str(self.state_dict()))
+        print("bin name : " + str(self.binName))
         if(self.save):
             T.save(self.state_dict(), self.binName)
 

@@ -10,6 +10,7 @@ from models.scheduleNet import ScheduleNet
 import numpy as np
 import os
 import requests
+import sys
 
 agentThyme = True
 #global execGet
@@ -235,7 +236,8 @@ def getServerInfo(serverDict):
     info = {}
     key = list(serverDict.keys())[0]
     cons = getContainers(serverDict)[key]
-    #print(cons)
+    print("server keys " + str(list(serverDict.keys())))
+    print("server info cons " + str(cons))
 
     info['totalCPUUtil'] = 0.0
     cpuUtil = getEntityUtilization(serverDict,"CPU")
@@ -255,8 +257,7 @@ def getServerInfo(serverDict):
     info['totalMEMUtilC'] = getEntityServerUtilizationType(cons,"C","MEM")
     info['totalMEMUtilD'] = getEntityServerUtilizationType(cons,"D","MEM")
 
-    #print("info")
-    #print(info)
+    print("info " + str(info))
     return info
     
 
@@ -291,9 +292,11 @@ def getServerCost(servCons):
 def getEntityServerUtilizationType(cons,rtype,mtype):
     utilizationRate = 0
     typeResource = 0
+    print("entity server utilization con keys " + str(cons.keys()))
 
     for con,conObj in cons.items():
         try:
+            print("entity server con " + str(conObj))
             if(conObj["conType"] == rtype):
                 typeResource += float(conObj[f"con{mtype}"])
         except:
@@ -301,26 +304,29 @@ def getEntityServerUtilizationType(cons,rtype,mtype):
             " con: " + str(con) + " " + str(conObj))
 
     if(typeResource == 0):
+        print("Type resource zero!" + str(cons) + " " + str(rtype) + " " + str(mtype))
         return 0.0
 
     curTasks = getTaskData()
-    #print("curTasks")
-    #print(curTasks)
+    print("curTasks" + str(curTasks))
+   # print(curTasks)
     conUsage = 0
 
     if(not curTasks):
+        print("No Tasks!" + str(curTasks))
         return 0.0
 
     for t,tObj in curTasks.items():
         try:
-            if(tObj["con"] in cons.keys()):
+            print("entity server task " + str(tObj))
+            if(("c" + tObj["con"]) in cons.keys()):
                 conUsage += float(tObj[f"t{mtype}"])
         except:
             print("current task not available \n" +
             " currentTasks: " + str(curTasks) + "\n" +
             + " task in question: " + str(t) + " " + str(tObj))
 
-
+    
     return conUsage/typeResource
 
 #mtype = CPU or MEM
@@ -552,6 +558,8 @@ def getContainerProvisionerInfo(state,serv,sObj):
         info = getServerInfo({serv:sObj})
         sNum = servNameToNum(serv)
         timeouts = getTimedOutCount(taskDat,sNum)
+
+        print("provisioner info " + str(info))
 
         state[0] =  info['totalCPUUtilA'] 
         state[1] =  info['totalCPUUtilB'] 
@@ -938,7 +946,7 @@ def utilScore(util,count):
         return [0,15,3]
 
 
-def conProvisionerReward(serv,sObj,poorDeprovision,poorProvision,timeouts,prevAction,episodes4Absolute):
+def conProvisionerReward(serv,sObj,poorDeprovision,poorProvision,timeouts,prevAction,state,episodes4Absolute):
     mFile = os.path.join(path_to_script, "AILOGS/provisionreward1.txt")
     f = open(mFile,"a")
     conCount = len(getContainers({serv:0})[serv])
@@ -947,54 +955,54 @@ def conProvisionerReward(serv,sObj,poorDeprovision,poorProvision,timeouts,prevAc
 
     if(poorDeprovision or poorProvision):
         return 0
-        f.write("Episode" + str(episodes4Absolute) + " ,server: " + str(serv) + " ,choice: " + str(prevAction) + " ,totalMEMUTILA: " + str(info['totalMEMUtilA']) + " ,totalMEMUTILB: " + str(info['totalMEMUtilB'])
-        + " ,totalMEMUTILCs: " + str(info['totalMEMUtilC']) + " ,totalMEMUTILD: " + str(info['totalMEMUtilD']) + " ,totalCPUUTILA: " + str(info['totalCPUUtilA']) + " ,totalCPUUTILB: " + str(info['totalCPUUtilB'])
-        + " ,totalCPUUTILC: " + str(info['totalCPUUtilC']) + " ,totalCPUUTILD: " + str(info['totalCPUUtilD']) + " ,conCount: " + str(conCount) + " ,reward: " + str(0) + "\n")
+        f.write("Episode" + str(episodes4Absolute) + " ,server: " + str(serv) + " ,choice: " + str(prevAction) + " ,totalMEMUTILA: " + str(state[4]) + " ,totalMEMUTILB: " + str(state[5])
+        + " ,totalMEMUTILCs: " + str(state[6]) + " ,totalMEMUTILD: " + str(state[7]) + " ,totalCPUUTILA: " + str(state[0]) + " ,totalCPUUTILB: " + str(state[1])
+        + " ,totalCPUUTILC: " + str(state[2]) + " ,totalCPUUTILD: " + str(state[3]) + " ,conCount: " + str(conCount) + " ,reward: " + str(0) + "\n")
 
     reward = 0
     if(prevAction == 0):
-        memBase = info['totalMEMUtilA'] + info['totalMEMUtilB'] + info['totalMEMUtilC'] + info['totalMEMUtilD']
-        cpuBase = info['totalCPUUtilA'] + info['totalCPUUtilB'] + info['totalCPUUtilC'] + info['totalCPUUtilD']
+        memBase = state[4] + state[5] + state[6] + state[7]
+        cpuBase = state[0] + state[1] + state[2] + state[3]
 
         reward = utilScore((memBase + cpuBase)/2,conCount)[0]
     elif(prevAction == 1):
-        memBase = info['totalMEMUtilA']
-        cpuBase = info['totalCPUUtilA']
+        memBase = state[4]
+        cpuBase = state[0]
 
         reward = utilScore((memBase + cpuBase)/2,conCount)[1]
     elif(prevAction == 2):
-        memBase = info['totalMEMUtilB']
-        cpuBase = info['totalCPUUtilB']
+        memBase = state[5]
+        cpuBase = state[1]
 
         reward = utilScore((memBase + cpuBase)/2,conCount)[1]
     elif(prevAction == 3):
-        memBase = info['totalMEMUtilC']
-        cpuBase = info['totalCPUUtilC']
+        memBase = state[6]
+        cpuBase = state[2]
 
         reward = utilScore((memBase + cpuBase)/2,conCount)[1]
     elif(prevAction == 4):
-        memBase = info['totalMEMUtilD']
-        cpuBase = info['totalCPUUtilD']
+        memBase = state[7]
+        cpuBase = state[3]
 
         reward = utilScore((memBase + cpuBase)/2,conCount)[1]
     elif(prevAction == 5):
-        memBase = info['totalMEMUtilA']
-        cpuBase = info['totalCPUUtilA']
+        memBase = state[4]
+        cpuBase = state[0]
 
         reward = utilScore((memBase + cpuBase)/2,conCount)[2]
     elif(prevAction == 6):
-        memBase = info['totalMEMUtilB']
-        cpuBase = info['totalCPUUtilB']
+        memBase = state[5]
+        cpuBase = state[1]
 
         reward = utilScore((memBase + cpuBase)/2,conCount)[2]
     elif(prevAction == 7):
-        memBase = info['totalMEMUtilC']
-        cpuBase = info['totalCPUUtilC']
+        memBase = state[6]
+        cpuBase = state[2]
 
         reward = utilScore((memBase + cpuBase)/2,conCount)[2]
     elif(prevAction == 8):
-        memBase = info['totalMEMUtilD']
-        cpuBase = info['totalCPUUtilD']
+        memBase = state[7]
+        cpuBase = state[3]
 
         reward = utilScore((memBase + cpuBase)/2,conCount)[2]
 
@@ -1008,9 +1016,9 @@ def conProvisionerReward(serv,sObj,poorDeprovision,poorProvision,timeouts,prevAc
     else:
         timeoutPenalty = .5
 
-    f.write("Episode" + str(episodes4Absolute) + " ,server: " + str(serv) + " ,choice: " + str(prevAction) + " ,totalMEMUTILA: " + str(info['totalMEMUtilA']) + " ,totalMEMUTILB: " + str(info['totalMEMUtilB'])
-    + " ,totalMEMUTILCs: " + str(info['totalMEMUtilC']) + " ,totalMEMUTILD: " + str(info['totalMEMUtilD']) + " ,totalCPUUTILA: " + str(info['totalCPUUtilA']) + " ,totalCPUUTILB: " + str(info['totalCPUUtilB'])
-    + " ,totalCPUUTILC: " + str(info['totalCPUUtilC']) + " ,totalCPUUTILD: " + str(info['totalCPUUtilD']) + " ,conCount: " + str(conCount) + " ,reward: " + str(reward * timeoutPenalty) + "\n")
+    f.write("Episode" + str(episodes4Absolute) + " ,server: " + str(serv) + " ,choice: " + str(prevAction) + " ,totalMEMUTILA: " + str(state[4]) + " ,totalMEMUTILB: " + str(state[5])
+    + " ,totalMEMUTILCs: " + str(state[6]) + " ,totalMEMUTILD: " + str(state[7]) + " ,totalCPUUTILA: " + str(state[0]) + " ,totalCPUUTILB: " + str(state[1])
+    + " ,totalCPUUTILC: " + str(state[2]) + " ,totalCPUUTILD: " + str(state[3]) + " ,conCount: " + str(conCount) + " ,reward: " + str(reward * timeoutPenalty) + "\n")
     
     return reward * timeoutPenalty
 
@@ -1304,7 +1312,12 @@ def dictToTcpString(cmdVals):
     return f"id:{mid},type:{mtype},timetocomplete:{ttc},region:{region},deps:{deps}"
 
 def perfectTaskScheduling(cmdVals):
-    global execlock 
+    global execlock
+    global execSock 
+    global orchlock  
+    global orchSock
+    global execGet
+    global perfectEpisodes
 
     s = correctservSelect(cmdVals)
     c = correctConSelect(s,cmdVals)
@@ -1322,7 +1335,21 @@ def perfectTaskScheduling(cmdVals):
     taskString = dictToTcpString(cmdVals)
     with execlock:
         print(f"AGENT 1: cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{s},con:{cVector},buff:buff")
-        execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{s},con:{cVector},buff:buff".encode()) 
+        execSock.sendall(f"cmd:sendReq,port:{conPort},contype:{conType},{taskString},server:{s},con:{cVector},buff:buff".encode())
+        perfectEpisodes += 1
+        while not execGet:
+            pass
+        execGet = False
+        time.sleep(1)    
+
+    with orchlock:
+        print("orchsock send!\n")
+        orchSock.sendall(b'cmd:agent1Get,buff:buff\r\n')
+    print("orchsock done!\n")
+
+    if(perfectEpisodes == 50):
+        switchProvisioner([10])
+        perfectEpisodes = 0 
 
 
 
@@ -1630,7 +1657,7 @@ def conProvisioningTime(size): #todo complete, double check the parallelism on t
         else:
             poorProv = prevServPProvs[serv]
 
-        reward = conProvisionerReward(serv,sObj,poorDeprov,poorProv,state[12],prevAction,episodes4Absolute)
+        reward = conProvisionerReward(serv,sObj,poorDeprov,poorProv,state[12],prevAction,state,episodes4Absolute)
         servRewards[serv] = reward
         if(serv in prevServStates.keys() and (prevServActs != "none" and len(prevServActs) > 0)):
             conProvisioningAgent.remember(prevServStates[serv],prevServActs[serv],prevServRewards[serv],state,False)
@@ -1640,6 +1667,15 @@ def conProvisioningTime(size): #todo complete, double check the parallelism on t
     prevServRewards = servRewards
     prevServPDeprovs = poorDeprovisions
     prevServPProvs = poorProvisions
+
+    episodes4Absolute += 1
+    episodes4 += 1
+
+    if(episodes4 >= 5):
+        episodes4 = 0
+        conProvisioningAgent.replay(10)
+
+
 
 
 
@@ -1771,6 +1807,8 @@ loadTaskAgent = sys.argv[4]
 provOn = sys.argv[5]
 saveProvAgent = sys.argv[6]
 loadProvAgent = sys.argv[7]
+
+perfectEpisodes = 0 
 
 print("agent1 to orch!\n")
 orchSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

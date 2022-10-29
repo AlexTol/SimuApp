@@ -9,7 +9,7 @@ from models.dqn import DQNAgent
 import os
 
 class ScheduleNet(nn.Module):
-    def __init__(self,l1dynamic_size,l2dynamic_size,l3dynamic_size,logFile1=False,logFile2=False,logFile3=False,saveAgent,loadAgent,sbin1,sbin2,sbin3):
+    def __init__(self,l1dynamic_size,l2dynamic_size,l3dynamic_size,logFile1=False,logFile2=False,logFile3=False,saveAgent="0",loadAgent="0",sbin1="none1",sbin2="none2",sbin3="none3"):
         super(ScheduleNet, self).__init__()
         #self.static_size = static_size
         self.servAgent = DQNAgent(l1dynamic_size,2,logFile1,saveAgent,loadAgent,sbin1)

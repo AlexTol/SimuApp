@@ -97,13 +97,13 @@ void initEnvironment(Redis db,string[string] cmdVals)
     string aiPath = "/home/dev/Projects/thesis/SimuApp/simuAI";
     string cmd1 = format("%s/executor",basePath);
     string cmd2 = format("%s/observer",basePath);
-    //zeroEON:0,schedON:1,saveTaskAgent:1,loadTaskAgent:0,ProvOn:1,saveProvAgent:1,loadProvAgent:0,buff:buff
-    string agent1Path = format("%s/agent1.py %s %s %s %s %s %s %s",aiPath,cmdVals["zeroEon"],cmdVals["schedON"],
-    cmdVals["saveTaskAgent"],cmdVals["loadTaskAgent"],cmdVals["ProvOn"],cmdVals["saveProvAgent"],cmdVals["loadProvAgent"]);
+    //zeroEon:0,schedON:1,saveTaskAgent:1,loadTaskAgent:0,ProvOn:1,saveProvAgent:1,loadProvAgent:0,buff:buff
+    string agent1Path = format("%s/agent1.py",aiPath);
 
     spawnProcess(cmd1);
     spawnProcess(cmd2);
-    spawnProcess(["python",agent1Path]);
+    spawnProcess(["python",agent1Path,cmdVals["zeroEon"],cmdVals["schedON"],cmdVals["saveTaskAgent"],
+    cmdVals["loadTaskAgent"],cmdVals["ProvOn"],cmdVals["saveProvAgent"],cmdVals["loadProvAgent"]]);
 
     string regionQuery = format("SADD regions NA SA EU AF AS AU");
     db.send(regionQuery);

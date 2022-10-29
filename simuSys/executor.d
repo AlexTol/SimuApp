@@ -367,10 +367,10 @@ void sendRequest(int port, Mtask t,SysTime timestamp,Socket obsSock,Redis db,str
         auto dep = execRedis(db,checkDepQuery);
         writefln("dep: %s\n",dep);
 
-        while(!empty(dep))
+        /**while(!empty(dep))
         {
             dep = execRedis(db,checkDepQuery);
-        }
+        }*/
     }
 
     int complete = 0;
@@ -760,8 +760,11 @@ void handleInput(Redis db,string[string] cmdVals,Socket[string] socks)
     }
     else if(cmdVals["cmd"] == "reqConfirmed")
     {
-        writefln("reqGet set to true\n");
-        reqGet = true;
+        synchronized
+        {
+            writefln("reqGet set to true\n");
+            reqGet = true;
+        }
     }
 
 }
