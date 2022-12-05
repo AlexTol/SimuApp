@@ -19,7 +19,7 @@ class DQNAgent(nn.Module):
         self.gamma = 0.95 #discount factor how much to discount future reward, near future is easier to guess than distant future
 
         self.epsilon = 1.0 # exploration rate for agent. The agent will look for new decisions and not rely on old proven decisions.
-        self.epsilon_decay = 0.9 #even though we want the agent to explore, we still want it to rely on proven methods over time, original .995
+        self.epsilon_decay = 0.9 #even though we want the agent to explore, we still want it to rely on proven methods over time, original .995, winning is .9
         self.epsilon_min = 0.01 # even as epsilon decays, we still want it to explore from time to time
 
         self.learning_rate = 0.001 # step size of stochastic grad descent, original 0.001

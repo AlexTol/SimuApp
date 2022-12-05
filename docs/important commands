@@ -36,6 +36,11 @@ cmd:deleteCon,servName:s1,servPort:8000,conName:c1,buff:buff
 cmd:initEnv,buff:buff
 cmd:initEnv,zeroEon:0,schedON:1,saveTaskAgent:1,loadTaskAgent:0,ProvOn:1,saveProvAgent:1,loadProvAgent:0,buff:buff
 cmd:initEnv,zeroEon:0,schedON:0,saveTaskAgent:0,loadTaskAgent:0,ProvOn:1,saveProvAgent:1,loadProvAgent:0,buff:buff
+cmd:initEnv,zeroEon:0,schedON:1,saveTaskAgent:1,loadTaskAgent:0,ProvOn:0,saveProvAgent:0,loadProvAgent:0,buff:buff
+cmd:initEnv,zeroEon:1,schedON:0,saveTaskAgent:1,loadTaskAgent:0,ProvOn:0,saveProvAgent:0,loadProvAgent:0,buff:buff
+cmd:initEnv,zeroEon:0,schedON:1,saveTaskAgent:0,loadTaskAgent:1,ProvOn:1,saveProvAgent:0,loadProvAgent:1,buff:buff
+cmd:initEnv,zeroEon:0,schedON:1,saveTaskAgent:0,loadTaskAgent:0,ProvOn:0,saveProvAgent:0,loadProvAgent:0,buff:buff
+cmd:initEnv,zeroEon:0,schedON:0,saveTaskAgent:0,loadTaskAgent:0,ProvOn:1,saveProvAgent:0,loadProvAgent:0,buff:buff
 cmd:shutDownEnv,buff:buff
 cmd:generateTasks,buff:buff
 
